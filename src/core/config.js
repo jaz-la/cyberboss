@@ -21,6 +21,7 @@ function readConfig() {
     weixinQrBotType: readTextEnv("CYBERBOSS_WEIXIN_QR_BOT_TYPE") || "3",
     accountsDir: path.join(stateDir, "accounts"),
     reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
+    systemMessageQueueFile: path.join(stateDir, "system-message-queue.json"),
     diaryDir: path.join(stateDir, "diary"),
     syncBufferDir: path.join(stateDir, "sync-buffers"),
     codexEndpoint: readTextEnv("CYBERBOSS_CODEX_ENDPOINT"),

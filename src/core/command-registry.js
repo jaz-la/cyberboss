@@ -31,6 +31,14 @@ const COMMAND_GROUPS = [
         weixin: [],
         status: "active",
       },
+      {
+        action: "system.send",
+        summary: "向内部系统队列写入一条不可见触发消息",
+        terminal: ["system send"],
+        terminalGroup: "system",
+        weixin: [],
+        status: "active",
+      },
     ],
   },
   {

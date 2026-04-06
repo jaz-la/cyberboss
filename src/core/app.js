@@ -6,6 +6,8 @@ const { createTimelineIntegration } = require("../integrations/timeline");
 const { buildWeixinHelpText } = require("./command-registry");
 const { StreamDelivery } = require("./stream-delivery");
 const { ThreadStateStore } = require("./thread-state-store");
+const { SystemMessageQueueStore } = require("./system-message-queue-store");
+const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 
 class CyberbossApp {
   constructor(config) {
@@ -14,6 +16,8 @@ class CyberbossApp {
     this.runtimeAdapter = createCodexRuntimeAdapter(config);
     this.timelineIntegration = createTimelineIntegration(config);
     this.threadStateStore = new ThreadStateStore();
+    this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
+    this.systemMessageDispatcher = null;
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
       sessionStore: this.runtimeAdapter.getSessionStore(),
@@ -44,6 +48,11 @@ class CyberbossApp {
 
   async start() {
     const account = this.channelAdapter.resolveAccount();
+    this.systemMessageDispatcher = new SystemMessageDispatcher({
+      queueStore: this.systemMessageQueue,
+      config: this.config,
+      accountId: account.accountId,
+    });
     const runtimeState = await this.runtimeAdapter.initialize();
     const knownContextTokens = Object.keys(this.channelAdapter.getKnownContextTokens()).length;
     const syncBuffer = this.channelAdapter.loadSyncBuffer();
@@ -67,6 +76,7 @@ class CyberbossApp {
 
     try {
       while (!shutdown.stopped) {
+        await this.flushPendingSystemMessages();
         const response = await this.channelAdapter.getUpdates({
           syncBuffer: this.channelAdapter.loadSyncBuffer(),
         });
@@ -77,6 +87,7 @@ class CyberbossApp {
           }
           await this.handleIncomingMessage(message);
         }
+        await this.flushPendingSystemMessages();
       }
     } finally {
       shutdown.dispose();
@@ -90,8 +101,12 @@ class CyberbossApp {
       return;
     }
 
+    await this.handlePreparedMessage(normalized, { allowCommands: true });
+  }
+
+  async handlePreparedMessage(normalized, { allowCommands }) {
     const command = parseChannelCommand(normalized.text);
-    if (command) {
+    if (allowCommands && command) {
       await this.dispatchChannelCommand(normalized, command);
       return;
     }
@@ -143,6 +158,40 @@ class CyberbossApp {
         contextToken: normalized.contextToken,
       }).catch(() => {});
     }
+  }
+
+  async flushPendingSystemMessages() {
+    const pendingMessages = this.systemMessageDispatcher?.drainPending() || [];
+    for (const message of pendingMessages) {
+      try {
+        const dispatched = await this.dispatchSystemMessage(message);
+        if (!dispatched) {
+          this.systemMessageDispatcher.requeue(message);
+        }
+      } catch {
+        this.systemMessageDispatcher?.requeue(message);
+      }
+    }
+  }
+
+  async dispatchSystemMessage(message) {
+    const prepared = this.systemMessageDispatcher?.buildPreparedMessage(message, this.channelAdapter.getKnownContextTokens()[message.senderId] || "");
+    if (!prepared) {
+      throw new Error("system message could not be prepared");
+    }
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: prepared.workspaceId,
+      accountId: prepared.accountId,
+      senderId: prepared.senderId,
+    });
+    const workspaceRoot = prepared.workspaceRoot || this.resolveWorkspaceRoot(bindingKey);
+    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
+    if (threadState?.status === "running" || threadState?.pendingApproval?.requestId) {
+      return false;
+    }
+    await this.handlePreparedMessage(prepared, { allowCommands: false });
+    return true;
   }
 
   async dispatchChannelCommand(normalized, command) {
