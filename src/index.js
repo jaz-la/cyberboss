@@ -83,6 +83,10 @@ async function main() {
       console.log(buildTerminalTopicHelp("timeline"));
       return;
     }
+    if (subcommand === "screenshot") {
+      await app.sendTimelineScreenshot(argv.slice(3));
+      return;
+    }
     await app.timelineIntegration.runSubcommand(subcommand, argv.slice(2));
     return;
   }

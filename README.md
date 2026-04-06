@@ -91,6 +91,8 @@ npm run timeline:dev
 npm run timeline:screenshot
 ```
 
+其中 `npm run timeline:screenshot` 会先调用 `timeline-for-agent` 生成截图，再由当前微信桥直接发回聊天。
+
 ### 3. 当前已接入的微信命令
 
 已经接入：

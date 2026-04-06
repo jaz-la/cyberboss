@@ -80,6 +80,9 @@
 - `npm run timeline:dev`
 - `npm run timeline:screenshot`
 
+说明：
+- `timeline:screenshot` 默认会把截图发回当前微信用户，不需要再额外执行发送命令。
+
 当前文档里列出的 `reminder / diary / system / timeline` 都已可直接使用。
 
 ## 当前已接入的微信命令

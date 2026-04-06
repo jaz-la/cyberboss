@@ -1,3 +1,5 @@
+const os = require("os");
+const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
@@ -114,6 +116,34 @@ class CyberbossApp {
     }
   }
 
+  async sendTimelineScreenshot(args = []) {
+    const senderId = this.resolveDefaultTerminalUser();
+    if (!senderId) {
+      throw new Error("无法确定时间轴截图要发送给哪个微信用户，先配置 CYBERBOSS_ALLOWED_USER_IDS");
+    }
+    const contextToken = this.channelAdapter.getKnownContextTokens()[senderId] || "";
+    if (!contextToken) {
+      throw new Error(`找不到用户 ${senderId} 的 context token，先让这个用户和 bot 聊过一次`);
+    }
+
+    const normalizedArgs = Array.isArray(args)
+      ? args.map((value) => String(value ?? "")).filter(Boolean)
+      : [];
+    const outputFile = resolveTimelineScreenshotOutput(normalizedArgs);
+    const finalArgs = outputFile
+      ? normalizedArgs
+      : [...normalizedArgs, "--output", path.join(os.tmpdir(), `cyberboss-timeline-${Date.now()}.png`)];
+    const savedPath = resolveTimelineScreenshotOutput(finalArgs);
+
+    await this.timelineIntegration.runSubcommand("screenshot", finalArgs);
+    await this.channelAdapter.sendFile({
+      userId: senderId,
+      filePath: savedPath,
+      contextToken,
+    });
+    return { userId: senderId, filePath: savedPath };
+  }
+
   async handleIncomingMessage(message) {
     const normalized = this.channelAdapter.normalizeIncomingMessage(message);
     if (!normalized) {
@@ -121,6 +151,13 @@ class CyberbossApp {
     }
 
     await this.handlePreparedMessage(normalized, { allowCommands: true });
+  }
+
+  resolveDefaultTerminalUser() {
+    if (Array.isArray(this.config.allowedUserIds) && this.config.allowedUserIds.length) {
+      return String(this.config.allowedUserIds[0] || "").trim();
+    }
+    return "";
   }
 
   async handlePreparedMessage(normalized, { allowCommands }) {
@@ -742,4 +779,15 @@ function matchesCommandPrefix(commandTokens, allowlist) {
 function buildReminderSystemTrigger(reminder) {
   const reminderText = String(reminder?.text || "").trim();
   return `这条 reminder 已到期。\n内容：${reminderText}`;
+}
+
+function resolveTimelineScreenshotOutput(args) {
+  const normalizedArgs = Array.isArray(args) ? args : [];
+  for (let index = 0; index < normalizedArgs.length; index += 1) {
+    if (String(normalizedArgs[index] || "").trim() !== "--output") {
+      continue;
+    }
+    return String(normalizedArgs[index + 1] || "").trim();
+  }
+  return "";
 }
