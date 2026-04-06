@@ -156,6 +156,18 @@ class CodexRpcClient {
     return this.sendRequest("model/list", {});
   }
 
+  async cancelTurn({ threadId, turnId }) {
+    const normalizedThreadId = normalizeNonEmptyString(threadId);
+    const normalizedTurnId = normalizeNonEmptyString(turnId);
+    if (!normalizedThreadId || !normalizedTurnId) {
+      throw new Error("turn/cancel requires threadId and turnId");
+    }
+    return this.sendRequest("turn/cancel", {
+      threadId: normalizedThreadId,
+      turnId: normalizedTurnId,
+    });
+  }
+
   async close() {
     if (this.socket) {
       try {

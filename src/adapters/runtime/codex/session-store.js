@@ -43,6 +43,10 @@ class SessionStore {
     return this.state.bindings[bindingKey] || null;
   }
 
+  getActiveWorkspaceRoot(bindingKey) {
+    return normalizeValue(this.state.bindings[bindingKey]?.activeWorkspaceRoot);
+  }
+
   updateBinding(bindingKey, nextBinding) {
     this.state.bindings[bindingKey] = {
       ...(this.state.bindings[bindingKey] || {}),
@@ -94,6 +98,21 @@ class SessionStore {
       ...current,
       threadIdByWorkspaceRoot,
     });
+  }
+
+  setActiveWorkspaceRoot(bindingKey, workspaceRoot) {
+    const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
+    if (!normalizedWorkspaceRoot) {
+      return this.getBinding(bindingKey);
+    }
+    return this.updateBinding(bindingKey, {
+      activeWorkspaceRoot: normalizedWorkspaceRoot,
+    });
+  }
+
+  listWorkspaceRoots(bindingKey) {
+    const current = this.getBinding(bindingKey) || {};
+    return Object.keys(getThreadMap(current));
   }
 
   getAvailableModelCatalog() {

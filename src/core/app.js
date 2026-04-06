@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
 const { createTimelineIntegration } = require("../integrations/timeline");
@@ -81,11 +82,18 @@ class CyberbossApp {
       return;
     }
 
+    const command = parseChannelCommand(normalized.text);
+    if (command) {
+      await this.dispatchChannelCommand(normalized, command);
+      return;
+    }
+
     const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
       workspaceId: normalized.workspaceId,
       accountId: normalized.accountId,
       senderId: normalized.senderId,
     });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
 
     await this.channelAdapter.sendTyping({
       userId: normalized.senderId,
@@ -96,7 +104,7 @@ class CyberbossApp {
     try {
       const result = await this.runtimeAdapter.sendTextTurn({
         bindingKey,
-        workspaceRoot: this.config.workspaceRoot,
+        workspaceRoot,
         text: normalized.text,
         metadata: {
           workspaceId: normalized.workspaceId,
@@ -123,6 +131,144 @@ class CyberbossApp {
         contextToken: normalized.contextToken,
       }).catch(() => {});
     }
+  }
+
+  async dispatchChannelCommand(normalized, command) {
+    switch (command.name) {
+      case "bind":
+        await this.handleBindCommand(normalized, command);
+        return;
+      case "status":
+        await this.handleStatusCommand(normalized);
+        return;
+      case "new":
+        await this.handleNewCommand(normalized);
+        return;
+      case "stop":
+        await this.handleStopCommand(normalized);
+        return;
+      default:
+        await this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          text: "当前支持：/bind /绝对路径、/status、/new、/stop",
+          contextToken: normalized.contextToken,
+        });
+    }
+  }
+
+  async handleBindCommand(normalized, command) {
+    const workspaceRoot = normalizeWorkspacePath(command.args);
+    if (!workspaceRoot) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "用法：/bind /绝对路径",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    if (!isAbsoluteWorkspacePath(workspaceRoot)) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "只支持绝对路径绑定。",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    const stats = await fs.promises.stat(workspaceRoot).catch(() => null);
+    if (!stats?.isDirectory()) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `项目不存在：${workspaceRoot}`,
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    this.runtimeAdapter.getSessionStore().setActiveWorkspaceRoot(bindingKey, workspaceRoot);
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `已绑定项目。\n\nworkspace: ${workspaceRoot}`,
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  async handleStatusCommand(normalized) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
+    const lines = [
+      `workspace: ${workspaceRoot}`,
+      `thread: ${threadId || "(none)"}`,
+      `status: ${threadState?.status || "idle"}`,
+      `reply: ${threadState?.lastReplyText || "(none)"}`,
+      "usage: (待接入)",
+    ];
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: lines.join("\n"),
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  async handleNewCommand(normalized) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    this.runtimeAdapter.getSessionStore().clearThreadIdForWorkspace(bindingKey, workspaceRoot);
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `已切到新线程草稿。\n\nworkspace: ${workspaceRoot}`,
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  async handleStopCommand(normalized) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
+    if (!threadId || !threadState?.turnId || threadState.status !== "running") {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "当前没有正在运行的线程。",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    await this.runtimeAdapter.cancelTurn({
+      threadId,
+      turnId: threadState.turnId,
+    });
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `已发送停止请求。\n\nthread: ${threadId}`,
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  resolveWorkspaceRoot(bindingKey) {
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    return sessionStore.getActiveWorkspaceRoot(bindingKey) || this.config.workspaceRoot;
   }
 }
 
@@ -160,3 +306,31 @@ function createShutdownController(onStop) {
 }
 
 module.exports = { CyberbossApp };
+
+function parseChannelCommand(text) {
+  const normalized = typeof text === "string" ? text.trim() : "";
+  if (!normalized.startsWith("/")) {
+    return null;
+  }
+  const [rawName, ...rest] = normalized.slice(1).split(/\s+/);
+  const name = normalizeCommandName(rawName);
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    args: rest.join(" ").trim(),
+  };
+}
+
+function normalizeCommandName(value) {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
+function normalizeWorkspacePath(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isAbsoluteWorkspacePath(value) {
+  return typeof value === "string" && value.startsWith("/");
+}

@@ -21,7 +21,7 @@
 - Codex runtime 连接、发消息、收完成态
 - core 内部的线程运行态记录
 
-后续会继续往上接授权、微信命令、提醒、日记、时间轴。
+后续会继续往上接授权、更多微信命令、提醒、日记、时间轴。
 
 ## 命令分层
 
@@ -74,15 +74,20 @@ cyberboss diary write
 
 当前这些子命令入口已经预留，但执行能力还在后续接入。
 
-### 3. 计划中的微信命令映射
+### 3. 当前已接入的微信命令
 
-当前还没开始接入微信命令面，计划先用短命令，而不是继续沿用 `/codex xxx`：
+已经接入：
 
 - `/bind` -> `workspace.bind`
 - `/status` -> `workspace.status`
 - `/new` -> `thread.new`
-- `/switch <threadId>` -> `thread.switch`
 - `/stop` -> `thread.stop`
+
+### 4. 计划中的微信命令映射
+
+下一批继续接：
+
+- `/switch <threadId>` -> `thread.switch`
 - `/yes` -> `approval.accept_once`
 - `/always` -> `approval.accept_workspace`
 - `/no` -> `approval.reject_once`
@@ -97,7 +102,7 @@ cyberboss diary write
 - `/help` 保留
 - `/reread` 暂不保留，优先交给自然语言触发
 
-### 4. 为什么要分层
+### 5. 为什么要分层
 
 - 终端命令和微信命令不需要长得一样
 - Codex、Claude Code、Cursor 以后也不需要共享同一套用户可见命令
