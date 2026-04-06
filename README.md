@@ -129,7 +129,7 @@ npm run timeline:screenshot
 - `CYBERBOSS_STATE_DIR`
   - 默认：`${HOME}/.cyberboss`
 - `CYBERBOSS_USER_NAME`
-  - 默认：`Wendy`
+  - 默认：`用户`
   - 用来替换默认文案、check-in 触发和本地 instructions 里的用户名
 - `CYBERBOSS_CHANNEL`
   - 默认：`weixin`

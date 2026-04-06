@@ -109,7 +109,7 @@ function sleep(ms) {
 }
 
 function buildCheckinTrigger(config) {
-  const userName = normalizeText(config?.userName) || "Wendy";
+  const userName = normalizeText(config?.userName) || "用户";
   return `判断是否要介入 ${userName}。可沉默、发短微信、写日记、写入时间轴、调用米家MCP或用工具。没必要就 __SILENT__；若发微信，只输出那句。`;
 }
 
