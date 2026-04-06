@@ -164,7 +164,7 @@ const COMMAND_GROUPS = [
         terminal: ["reminder write"],
         terminalGroup: "reminder",
         weixin: [],
-        status: "planned",
+        status: "active",
       },
       {
         action: "diary.append",
@@ -172,7 +172,7 @@ const COMMAND_GROUPS = [
         terminal: ["diary write"],
         terminalGroup: "diary",
         weixin: [],
-        status: "planned",
+        status: "active",
       },
       {
         action: "app.help",
@@ -253,10 +253,13 @@ function buildTerminalTopicHelp(topic) {
     return "";
   }
 
+  const hasPlannedOnly = actions.every((action) => action.status === "planned");
   const lines = [
     `用法: cyberboss ${normalizedTopic} <子命令>`,
     "",
-    `当前 ${normalizedTopic} 命令仍在接入中，计划中的子命令：`,
+    hasPlannedOnly
+      ? `当前 ${normalizedTopic} 命令仍在接入中，计划中的子命令：`
+      : `当前 ${normalizedTopic} 命令：`,
   ];
   for (const action of actions) {
     lines.push(`- ${action.terminal.join(", ")}  ${action.summary}`);
@@ -274,7 +277,7 @@ function isPlannedTerminalTopic(topic) {
 function collectPlannedTerminalGroups() {
   const grouped = new Map();
   for (const action of COMMAND_GROUPS.flatMap((group) => group.actions)) {
-    if (!action.terminal.length || !action.terminalGroup) {
+    if (!action.terminal.length || !action.terminalGroup || action.status !== "planned") {
       continue;
     }
     const key = action.terminalGroup;

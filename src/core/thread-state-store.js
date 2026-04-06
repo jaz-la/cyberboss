@@ -1,9 +1,17 @@
 class ThreadStateStore {
   constructor() {
     this.stateByThreadId = new Map();
+    this.latestUsage = null;
   }
 
   applyRuntimeEvent(event) {
+    if (event?.type === "runtime.usage.updated") {
+      this.latestUsage = {
+        ...event.payload,
+        updatedAt: new Date().toISOString(),
+      };
+      return;
+    }
     if (!event || !event.payload || !event.payload.threadId) {
       return;
     }
@@ -79,6 +87,10 @@ class ThreadStateStore {
 
   snapshot() {
     return Array.from(this.stateByThreadId.values()).map((entry) => ({ ...entry }));
+  }
+
+  getLatestUsage() {
+    return this.latestUsage ? { ...this.latestUsage } : null;
   }
 }
 

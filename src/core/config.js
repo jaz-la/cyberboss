@@ -10,6 +10,7 @@ function readConfig() {
     stateDir,
     workspaceId: readTextEnv("CYBERBOSS_WORKSPACE_ID") || "default",
     workspaceRoot: readTextEnv("CYBERBOSS_WORKSPACE_ROOT") || process.cwd(),
+    allowedUserIds: readListEnv("CYBERBOSS_ALLOWED_USER_IDS"),
     channel: readTextEnv("CYBERBOSS_CHANNEL") || "weixin",
     runtime: readTextEnv("CYBERBOSS_RUNTIME") || "codex",
     timelineCommand: readTextEnv("CYBERBOSS_TIMELINE_COMMAND") || "timeline-for-agent",
@@ -19,11 +20,20 @@ function readConfig() {
     weixinAdapterVariant: readTextEnv("CYBERBOSS_WEIXIN_ADAPTER") || "v2",
     weixinQrBotType: readTextEnv("CYBERBOSS_WEIXIN_QR_BOT_TYPE") || "3",
     accountsDir: path.join(stateDir, "accounts"),
+    reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
+    diaryDir: path.join(stateDir, "diary"),
     syncBufferDir: path.join(stateDir, "sync-buffers"),
     codexEndpoint: readTextEnv("CYBERBOSS_CODEX_ENDPOINT"),
     codexCommand: readTextEnv("CYBERBOSS_CODEX_COMMAND"),
     sessionsFile: path.join(stateDir, "sessions.json"),
   };
+}
+
+function readListEnv(name) {
+  return String(process.env[name] || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 function readTextEnv(name) {

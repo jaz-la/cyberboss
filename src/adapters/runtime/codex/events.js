@@ -6,6 +6,12 @@ const {
 } = require("./message-utils");
 
 function mapCodexMessageToRuntimeEvent(message) {
+  if (message?.type === "event_msg" && message?.payload?.type === "token_count") {
+    return {
+      type: "runtime.usage.updated",
+      payload: normalizeUsagePayload(message.payload),
+    };
+  }
   const method = normalizeString(message?.method);
   const params = message?.params || {};
   const threadId = extractThreadIdFromParams(params);
@@ -91,6 +97,28 @@ function mapCodexMessageToRuntimeEvent(message) {
   return null;
 }
 
+function normalizeUsagePayload(payload) {
+  const info = payload?.info || {};
+  const total = info?.total_token_usage || {};
+  const last = info?.last_token_usage || {};
+  const rateLimits = payload?.rate_limits || {};
+  return {
+    totalInputTokens: numberOrZero(total.input_tokens),
+    totalCachedInputTokens: numberOrZero(total.cached_input_tokens),
+    totalOutputTokens: numberOrZero(total.output_tokens),
+    totalReasoningTokens: numberOrZero(total.reasoning_output_tokens),
+    totalTokens: numberOrZero(total.total_tokens),
+    lastInputTokens: numberOrZero(last.input_tokens),
+    lastCachedInputTokens: numberOrZero(last.cached_input_tokens),
+    lastOutputTokens: numberOrZero(last.output_tokens),
+    lastReasoningTokens: numberOrZero(last.reasoning_output_tokens),
+    lastTotalTokens: numberOrZero(last.total_tokens),
+    modelContextWindow: numberOrZero(info?.model_context_window),
+    primaryUsedPercent: numberOrZero(rateLimits?.primary?.used_percent),
+    secondaryUsedPercent: numberOrZero(rateLimits?.secondary?.used_percent),
+  };
+}
+
 function isApprovalRequestMethod(method) {
   return typeof method === "string" && method.endsWith("requestApproval");
 }
@@ -118,6 +146,10 @@ function extractApprovalCommandTokens(params) {
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function numberOrZero(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : 0;
 }
 
 module.exports = { mapCodexMessageToRuntimeEvent };

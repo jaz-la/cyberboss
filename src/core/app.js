@@ -238,14 +238,30 @@ class CyberbossApp {
     const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
     const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
+    const usage = this.threadStateStore.getLatestUsage();
     const lines = [
       `workspace: ${workspaceRoot}`,
       `thread: ${threadId || "(none)"}`,
       `status: ${threadState?.status || "idle"}`,
       `model: ${this.runtimeAdapter.getSessionStore().getCodexParamsForWorkspace(bindingKey, workspaceRoot).model || "(default)"}`,
-      `reply: ${threadState?.lastReplyText || "(none)"}`,
-      "usage: (待接入)",
     ];
+    if (usage) {
+      const usageParts = [];
+      if (usage.modelContextWindow > 0 && usage.lastTotalTokens > 0) {
+        usageParts.push(`last ${formatCompactNumber(usage.lastTotalTokens)}/${formatCompactNumber(usage.modelContextWindow)}`);
+      } else if (usage.lastTotalTokens > 0) {
+        usageParts.push(`last ${formatCompactNumber(usage.lastTotalTokens)}`);
+      }
+      if (usage.primaryUsedPercent > 0) {
+        usageParts.push(`5h ${usage.primaryUsedPercent}%`);
+      }
+      if (usage.secondaryUsedPercent > 0) {
+        usageParts.push(`7d ${usage.secondaryUsedPercent}%`);
+      }
+      if (usageParts.length) {
+        lines.push(`usage: ${usageParts.join(" | ")}`);
+      }
+    }
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: lines.join("\n"),
@@ -501,6 +517,20 @@ class CyberbossApp {
     }).catch(() => {});
     this.threadStateStore.resolveApproval(event.payload.threadId, "running");
   }
+}
+
+function formatCompactNumber(value) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    return "0";
+  }
+  if (normalized >= 1_000_000) {
+    return `${Math.round(normalized / 100_000) / 10}m`;
+  }
+  if (normalized >= 1_000) {
+    return `${Math.round(normalized / 100) / 10}k`;
+  }
+  return String(Math.round(normalized));
 }
 
 function createShutdownController(onStop) {

@@ -5,6 +5,8 @@ const dotenv = require("dotenv");
 
 const { readConfig } = require("./core/config");
 const { CyberbossApp } = require("./core/app");
+const { runDiaryWriteCommand } = require("./app/diary-write-cli");
+const { runReminderWriteCommand } = require("./app/reminder-write-cli");
 const {
   buildTerminalHelpText,
   buildTerminalTopicHelp,
@@ -52,6 +54,14 @@ async function main() {
     const topicHelp = buildTerminalTopicHelp(command);
     if (subcommand === "help" || !subcommand) {
       console.log(topicHelp);
+      return;
+    }
+    if (command === "diary" && subcommand === "write") {
+      await runDiaryWriteCommand(config);
+      return;
+    }
+    if (command === "reminder" && subcommand === "write") {
+      await runReminderWriteCommand(config);
       return;
     }
     throw new Error(`命令尚未接入: cyberboss ${command} ${subcommand}`);
