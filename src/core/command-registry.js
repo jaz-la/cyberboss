@@ -221,6 +221,7 @@ function buildTerminalHelpText() {
     "用法: npm run <script>",
     "",
     "当前终端命令：",
+    "  npm run start:checkin  启动主循环并同时开启 checkin 轮询",
   ];
 
   for (const group of COMMAND_GROUPS) {
@@ -357,6 +358,8 @@ function toNpmRunExample(commandText) {
     case "doctor":
     case "help":
       return `npm run ${normalized}`;
+    case "start --checkin":
+      return "npm run start:checkin";
     case "reminder write":
       return "npm run reminder:write -- <args>";
     case "diary write":

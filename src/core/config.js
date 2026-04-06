@@ -2,11 +2,13 @@ const os = require("os");
 const path = require("path");
 
 function readConfig() {
-  const mode = process.argv[2] || "";
+  const argv = process.argv.slice(2);
+  const mode = argv[0] || "";
   const stateDir = process.env.CYBERBOSS_STATE_DIR || path.join(os.homedir(), ".cyberboss");
 
   return {
     mode,
+    argv,
     stateDir,
     workspaceId: readTextEnv("CYBERBOSS_WORKSPACE_ID") || "default",
     workspaceRoot: readTextEnv("CYBERBOSS_WORKSPACE_ROOT") || process.cwd(),
@@ -28,6 +30,7 @@ function readConfig() {
     codexEndpoint: readTextEnv("CYBERBOSS_CODEX_ENDPOINT"),
     codexCommand: readTextEnv("CYBERBOSS_CODEX_COMMAND"),
     sessionsFile: path.join(stateDir, "sessions.json"),
+    startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };
 }
 
@@ -41,6 +44,15 @@ function readListEnv(name) {
 function readTextEnv(name) {
   const value = process.env[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readBoolEnv(name) {
+  const value = readTextEnv(name).toLowerCase();
+  return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function hasArgFlag(argv, flag) {
+  return Array.isArray(argv) && argv.some((item) => String(item || "").trim() === flag);
 }
 
 module.exports = { readConfig };

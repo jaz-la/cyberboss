@@ -64,6 +64,7 @@ npm run check
 npm run login
 npm run accounts
 npm run start
+npm run start:checkin
 npm run doctor
 npm run help
 ```
@@ -76,8 +77,9 @@ npm run help
 npm run reminder:write -- --delay 30m --text "提醒内容"
 npm run diary:write -- --title 标题 --text "内容"
 npm run system:send -- --text "系统消息"
-npm run system:checkin
 ```
+
+`checkin` 现在更推荐跟随启动一起开，用 `npm run start:checkin`；单独的 `system:checkin` 仍保留作底层入口。
 
 目前已接入 `reminder`、`diary`、`system`、`timeline` 这四组脚本。
 

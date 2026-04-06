@@ -12,6 +12,7 @@ const { ThreadStateStore } = require("./thread-state-store");
 const { SystemMessageQueueStore } = require("./system-message-queue-store");
 const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
+const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 const {
   createReminderInterpreter,
   formatDelayText,
@@ -84,6 +85,12 @@ class CyberbossApp {
     console.log(`[cyberboss] codexEndpoint=${runtimeState.endpoint}`);
     console.log(`[cyberboss] codexModels=${runtimeState.models.length}`);
     console.log("[cyberboss] 最小消息链路已启动，正在等待微信消息。");
+    if (this.config.startWithCheckin) {
+      console.log("[cyberboss] checkin: enabled");
+      void runSystemCheckinPoller(this.config).catch((error) => {
+        console.error(`[cyberboss] checkin poller stopped: ${error.message}`);
+      });
+    }
 
     const shutdown = createShutdownController(async () => {
       if (this.reminderInterpreter) {

@@ -52,6 +52,7 @@
 - `npm run login`
 - `npm run accounts`
 - `npm run start`
+- `npm run start:checkin`
 - `npm run doctor`
 - `npm run help`
 
@@ -71,6 +72,10 @@
 
 - `npm run system:send -- --text "系统消息"`
 - `npm run system:checkin`
+
+说明：
+- `checkin` 更推荐跟随启动一起开：`npm run start:checkin`
+- `system:checkin` 仅保留为底层轮询入口
 
 ### timeline
 
