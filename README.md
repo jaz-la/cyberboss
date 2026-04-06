@@ -23,6 +23,13 @@
 
 后续会继续往上接授权、更多微信命令、提醒、日记、时间轴。
 
+当前默认启用参考 `cc-connect` 思路重写的 `weixin-v2` 实验通道。
+如果需要回退旧实现，可以设置：
+
+```bash
+export CYBERBOSS_WEIXIN_ADAPTER=legacy
+```
+
 ## 命令分层
 
 ### 1. Core Action

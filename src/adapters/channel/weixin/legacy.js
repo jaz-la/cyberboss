@@ -1,26 +1,18 @@
 const crypto = require("crypto");
-const { listWeixinAccounts, resolveSelectedAccount } = require("./account-store");
+const { listWeixinAccounts } = require("./account-store");
+const { resolveSelectedAccount } = require("./account-store");
 const { loadPersistedContextTokens, persistContextToken } = require("./context-token-store");
 const { runLoginFlow } = require("./login");
-const { getConfig, sendTyping } = require("./api");
-const { getUpdatesV2, sendTextV2 } = require("./api-v2");
-const { createLegacyWeixinChannelAdapter } = require("./legacy");
-const { createInboundFilter } = require("./message-utils-v2");
+const { getConfig, getUpdates, sendMessage, sendTyping } = require("./api");
 const { sendWeixinMediaFile } = require("./media-send");
+const { normalizeWeixinIncomingMessage } = require("./message-utils");
 const { loadSyncBuffer, saveSyncBuffer } = require("./sync-buffer-store");
 
 const LONG_POLL_TIMEOUT_MS = 35_000;
-const MAX_WEIXIN_CHUNK = 3800;
 
-function createWeixinChannelAdapter(config) {
-  const variant = normalizeAdapterVariant(config.weixinAdapterVariant);
-  if (variant === "legacy") {
-    return createLegacyWeixinChannelAdapter(config);
-  }
-
+function createLegacyWeixinChannelAdapter(config) {
   let selectedAccount = null;
   let contextTokenCache = null;
-  const inboundFilter = createInboundFilter();
 
   function ensureAccount() {
     if (!selectedAccount) {
@@ -61,32 +53,11 @@ function createWeixinChannelAdapter(config) {
     return ensureContextTokenCache()[normalizedUserId] || "";
   }
 
-  function sendTextChunks({ userId, text, contextToken = "" }) {
-    const account = ensureAccount();
-    const resolvedToken = resolveContextToken(userId, contextToken);
-    if (!resolvedToken) {
-      throw new Error(`缺少 context_token，无法回复用户 ${userId}`);
-    }
-    const content = String(text || "").trim();
-    if (!content) {
-      return Promise.resolve();
-    }
-    const chunks = splitUtf8(content, MAX_WEIXIN_CHUNK);
-    return chunks.reduce((promise, chunk) => promise.then(() => sendTextV2({
-      baseUrl: account.baseUrl,
-      token: account.token,
-      toUserId: userId,
-      text: chunk,
-      contextToken: resolvedToken,
-      clientId: `cb-${crypto.randomUUID()}`,
-    })), Promise.resolve());
-  }
-
   return {
     describe() {
       return {
         id: "weixin",
-        variant: "v2",
+        variant: "legacy",
         kind: "channel",
         stateDir: config.stateDir,
         baseUrl: config.weixinBaseUrl,
@@ -128,10 +99,10 @@ function createWeixinChannelAdapter(config) {
     rememberContextToken,
     async getUpdates({ syncBuffer = "", timeoutMs = LONG_POLL_TIMEOUT_MS } = {}) {
       const account = ensureAccount();
-      const response = await getUpdatesV2({
+      const response = await getUpdates({
         baseUrl: account.baseUrl,
         token: account.token,
-        getUpdatesBuf: syncBuffer,
+        get_updates_buf: syncBuffer,
         timeoutMs,
       });
       if (typeof response?.get_updates_buf === "string" && response.get_updates_buf.trim()) {
@@ -149,10 +120,34 @@ function createWeixinChannelAdapter(config) {
     },
     normalizeIncomingMessage(message) {
       const account = ensureAccount();
-      return inboundFilter.normalize(message, config, account.accountId);
+      return normalizeWeixinIncomingMessage(message, config, account.accountId);
     },
     async sendText({ userId, text, contextToken = "" }) {
-      await sendTextChunks({ userId, text, contextToken });
+      const account = ensureAccount();
+      const resolvedToken = resolveContextToken(userId, contextToken);
+      if (!resolvedToken) {
+        throw new Error(`缺少 context_token，无法回复用户 ${userId}`);
+      }
+      await sendMessage({
+        baseUrl: account.baseUrl,
+        token: account.token,
+        body: {
+          msg: {
+            client_id: crypto.randomUUID(),
+            from_user_id: "",
+            to_user_id: userId,
+            message_type: 2,
+            message_state: 2,
+            item_list: [
+              {
+                type: 1,
+                text_item: { text: String(text || "") },
+              },
+            ],
+            context_token: resolvedToken,
+          },
+        },
+      });
     },
     async sendTyping({ userId, status = 1, contextToken = "" }) {
       const account = ensureAccount();
@@ -200,21 +195,4 @@ function createWeixinChannelAdapter(config) {
   };
 }
 
-function normalizeAdapterVariant(value) {
-  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
-  return normalized === "legacy" ? "legacy" : "v2";
-}
-
-function splitUtf8(text, maxRunes) {
-  const runes = Array.from(String(text || ""));
-  if (!runes.length || runes.length <= maxRunes) {
-    return [String(text || "")];
-  }
-  const chunks = [];
-  while (runes.length) {
-    chunks.push(runes.splice(0, maxRunes).join(""));
-  }
-  return chunks;
-}
-
-module.exports = { createWeixinChannelAdapter };
+module.exports = { createLegacyWeixinChannelAdapter };
