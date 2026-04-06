@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
@@ -245,7 +246,7 @@ class CyberbossApp {
     }
 
     const reminder = this.reminderQueue.enqueue({
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      id: crypto.randomUUID(),
       accountId: normalized.accountId,
       senderId: normalized.senderId,
       contextToken,
@@ -740,12 +741,5 @@ function matchesCommandPrefix(commandTokens, allowlist) {
 
 function buildReminderSystemTrigger(reminder) {
   const reminderText = String(reminder?.text || "").trim();
-  if (!reminderText) {
-    return "这是一条内部 reminder 到期触发。不是用户刚刚发来的新消息，也不要再创建新的 reminder。";
-  }
-  return [
-    "这是一条内部 reminder 到期触发。",
-    "不是用户刚刚发来的新消息，也不要再创建新的 reminder。",
-    `原提醒内容：${reminderText}`,
-  ].join("\n");
+  return `这条 reminder 已到期。\n内容：${reminderText}`;
 }
