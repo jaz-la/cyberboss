@@ -20,6 +20,13 @@
 
 </div>
 
+<p align="center">
+  <img src="./docs/images/chat-example-1.jpg" alt="Cyberboss 示例对话 1" width="23%" />
+  <img src="./docs/images/chat-example-2.jpg" alt="Cyberboss 示例对话 2" width="23%" />
+  <img src="./docs/images/chat-example-3.jpg" alt="Cyberboss 示例对话 3" width="23%" />
+  <img src="./docs/images/chat-example-4.jpg" alt="Cyberboss 示例对话 4" width="23%" />
+</p>
+
 Cyberboss 不是另一个平庸的番茄钟，也不是一个只会堆积任务的待办清单。
 
 它是一个将 Codex 深度接入微信的 Agent Bridge。它的存在不是为了“提醒你开始”，而是直接化身为那个拥有绝对时间感、盯死进度、在你消失太久时会主动破屏而出的“赛博老板”。
