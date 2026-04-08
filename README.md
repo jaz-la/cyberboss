@@ -184,6 +184,8 @@ CYBERBOSS_WEIXIN_ADAPTER=v2
   查看当前绑定项目、线程、模型和上下文状态
 - `/new`
   切到新线程草稿
+- `/reread`
+  让当前线程重新读取最新 instructions，适合刚改完人格模板或操作模板后使用
 - `/switch <threadId>`
   切换到指定线程
 - `/stop`

@@ -96,6 +96,13 @@ const COMMAND_GROUPS = [
         status: "active",
       },
       {
+        action: "thread.reread",
+        summary: "让当前线程重新读取最新 instructions",
+        terminal: [],
+        weixin: ["/reread"],
+        status: "active",
+      },
+      {
         action: "thread.switch",
         summary: "切换到指定线程",
         terminal: [],

@@ -112,6 +112,7 @@
 - `/bind`
 - `/status`
 - `/new`
+- `/reread`
 - `/stop`
 - `/switch <threadId>`
 - `/yes`

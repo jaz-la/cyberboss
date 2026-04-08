@@ -569,6 +569,9 @@ class CyberbossApp {
       case "new":
         await this.handleNewCommand(normalized);
         return;
+      case "reread":
+        await this.handleRereadCommand(normalized);
+        return;
       case "switch":
         await this.handleSwitchCommand(normalized, command);
         return;
@@ -691,6 +694,50 @@ class CyberbossApp {
       text: `已切到新线程草稿。\n\nworkspace: ${workspaceRoot}`,
       contextToken: normalized.contextToken,
     });
+  }
+
+  async handleRereadCommand(normalized) {
+    const bindingKey = this.runtimeAdapter.getSessionStore().buildBindingKey({
+      workspaceId: normalized.workspaceId,
+      accountId: normalized.accountId,
+      senderId: normalized.senderId,
+    });
+    const workspaceRoot = this.resolveWorkspaceRoot(bindingKey);
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    const threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
+    if (!threadId) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "当前还没有可用线程，先发一条普通消息开始。",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    try {
+      this.streamDelivery.queueReplyTargetForThread(threadId, {
+        userId: normalized.senderId,
+        contextToken: normalized.contextToken,
+        provider: normalized.provider,
+      });
+      this.scheduleRuntimeEventWatchdog({
+        bindingKey,
+        workspaceRoot,
+        normalized,
+        threadId,
+      });
+      await this.runtimeAdapter.refreshThreadInstructions({
+        threadId,
+        workspaceRoot,
+        model: sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot).model,
+      });
+    } catch (error) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `重读失败：${error instanceof Error ? error.message : String(error || "unknown error")}`,
+        contextToken: normalized.contextToken,
+      }).catch(() => {});
+    }
   }
 
   async handleSwitchCommand(normalized, command) {
