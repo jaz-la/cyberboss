@@ -378,8 +378,32 @@ function shouldSuppressSystemReply(replyTarget, plainReplyText) {
   if (replyTarget?.provider !== "system") {
     return false;
   }
-  const normalized = normalizeText(plainReplyText);
-  return normalized === "__SILENT__" || normalized === "SILENT";
+  const normalized = normalizeLineEndings(String(plainReplyText || ""));
+  const compact = normalized.trim();
+  if (!compact) {
+    return false;
+  }
+  const sentinelNormalized = normalizeSilentSentinelText(compact);
+  if (compact === "CB_SILENT" || compact === "__SILENT__" || compact === "SILENT") {
+    return true;
+  }
+  if (compact.toUpperCase().includes("CB_SILENT") || compact.toUpperCase().includes("__SILENT__")) {
+    return true;
+  }
+  if (sentinelNormalized.includes("CB_SILENT") || sentinelNormalized.includes("__SILENT__") || sentinelNormalized.includes("SILENT")) {
+    return true;
+  }
+  return normalized
+    .split("\n")
+    .map((line) => normalizeSilentSentinelText(line.trim()))
+    .some((line) => line === "CB_SILENT" || line === "__SILENT__" || line === "SILENT");
+}
+
+function normalizeSilentSentinelText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toUpperCase()
+    .replace(/[^A-Z_]/g, "");
 }
 
 module.exports = { StreamDelivery };
