@@ -276,6 +276,8 @@ The following commands are primarily for agents and automations, not the main da
 
 - `npm run reminder:write -- --delay 30m --text "Reminder text"`
   Write a reminder for the future self
+- `printf '%s\n' 'Reminder text with quotes or longer context' | npm run reminder:write -- --delay 20m --stdin`
+  Safer reminder entry for long or quote-heavy text
 - `npm run reminder:write -- --at "2026-04-07 21:30" --text "Reminder text"`
   Write a reminder at an explicit time
 - `npm run diary:write -- --title Title --text "Content"`

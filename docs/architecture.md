@@ -2,59 +2,58 @@
 
 ## Core
 
-`core` 负责：
+`core` is responsible for:
 
-- 读取配置
-- 选择要使用的 channel / runtime / integrations
-- 编排能力，而不是实现具体协议
+- reading config
+- choosing which channel / runtime / integrations to use
+- orchestrating capabilities instead of implementing concrete protocols
 
 ## Channel Adapters
 
 `adapters/channel/*`
 
-负责：
+Responsible for:
 
-- 收消息
-- 发消息
-- typing / 媒体 / 上下文 token
+- receiving messages
+- sending messages
+- typing / media / context token handling
 
-不负责：
+Not responsible for:
 
-- Codex / Claude Code 线程
-- reminder / timeline / diary 逻辑
+- Codex / Claude Code thread logic
+- reminder / timeline / diary logic
 
 ## Runtime Adapters
 
 `adapters/runtime/*`
 
-负责：
+Responsible for:
 
-- 把消息送进具体 agent runtime
-- 处理 thread / session / approval / stop
+- sending messages into the specific agent runtime
+- handling thread / session / approval / stop
 
-不负责：
+Not responsible for:
 
-- 微信协议
-- timeline 页面
+- WeChat protocol details
+- timeline UI
 
 ## Capability Integrations
 
 `integrations/*`
 
-例如：
+Examples:
 
 - `timeline`
 - `reminder`
 - `diary`
 
-这些能力应该尽量依赖外部独立项目，而不是重新把实现揉回主仓库。
+These capabilities should depend on external standalone projects whenever possible, instead of being folded back into the main repository.
 
-## 当前预期依赖
+## Expected External Dependencies
 
 - timeline:
   - `timeline-for-agent`
 - weixin bridge:
-  - 待拆分成独立 adapter
+  - to be split into a standalone adapter
 - codex runtime:
-  - 待拆分成独立 adapter
-
+  - to be split into a standalone adapter

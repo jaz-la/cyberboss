@@ -1,27 +1,27 @@
 # Commands
 
-## 设计原则
+## Design Principles
 
-`Cyberboss` 不把所有终端、微信、不同 agent 的命令写死成同一套字符串。
+`Cyberboss` does not hard-code one shared string format across terminal commands, WeChat commands, and different agent runtimes.
 
-它先定义稳定的内部 action，再让每个通道做自己的映射：
+It defines stable internal actions first, then lets each channel expose its own entrypoints:
 
-- core action：内部稳定语义
-- terminal command：终端入口
-- weixin command：微信入口
+- core action: stable internal meaning
+- terminal command: terminal entrypoint
+- weixin command: WeChat entrypoint
 
-这样后面接入新的 runtime 或 channel 时，不需要反复重命名 core。
+This keeps the core naming stable when new runtimes or channels are added later.
 
-## 当前 action 分组
+## Current Action Groups
 
-### 启动与诊断
+### Lifecycle & Diagnostics
 
 - `app.login`
 - `app.accounts`
 - `app.start`
 - `app.doctor`
 
-### 项目与线程
+### Workspace & Thread
 
 - `workspace.bind`
 - `workspace.status`
@@ -29,13 +29,13 @@
 - `thread.switch`
 - `thread.stop`
 
-### 授权与控制
+### Approvals & Control
 
 - `approval.accept_once`
 - `approval.accept_workspace`
 - `approval.reject_once`
 
-### 能力集成
+### Capabilities
 
 - `model.inspect`
 - `model.select`
@@ -45,9 +45,9 @@
 - `diary.append`
 - `app.help`
 
-## 当前终端命令
+## Current Terminal Commands
 
-当前只开放最小一组：
+The intentionally small public set is:
 
 - `npm run login`
 - `npm run accounts`
@@ -57,42 +57,41 @@
 - `npm run doctor`
 - `npm run help`
 
-## 规划中的终端子命令
-
-为了避免继续把所有能力都平铺在顶层，后续命令会按能力分组：
+## Capability Commands
 
 ### channel
 
-- `npm run channel:send-file -- --path /绝对路径`
+- `npm run channel:send-file -- --path /absolute/path`
 
-说明：
-- 用来把本地已有文件直接发回当前微信聊天
-- 可选 `--user <wechatUserId>` 覆盖默认接收用户
+Notes:
+- Sends an existing local file back to the current WeChat chat
+- `--user <wechatUserId>` can override the default receiver
 
 ### reminder
 
-- `npm run reminder:write -- --delay 30m --text "提醒内容"`
-- `npm run reminder:write -- --delay 1h30m --text "提醒内容"`
-- `npm run reminder:write -- --at "2026-04-07 21:30" --text "提醒内容"`
+- `npm run reminder:write -- --delay 30m --text "Reminder text"`
+- `npm run reminder:write -- --delay 1h30m --text "Reminder text"`
+- `printf '%s\n' 'Reminder text with quotes or longer context' | npm run reminder:write -- --delay 20m --stdin`
+- `npm run reminder:write -- --at "2026-04-07 21:30" --text "Reminder text"`
 
 ### diary
 
-- `npm run diary:write -- --title 标题 --text "内容"`
-- `npm run diary:write -- --date 2026-04-06 --title "4.6" --text "内容"`
+- `npm run diary:write -- --title "Title" --text "Content"`
+- `npm run diary:write -- --date 2026-04-06 --title "4.6" --text "Content"`
 
-说明：
-- `--title` 只影响条目标题
-- `--date` 才决定写入哪个日记文件
-- `--time` 可选，用来覆盖条目时间
+Notes:
+- `--title` only affects the entry title
+- `--date` decides which diary file to write into
+- `--time` is optional and overrides the entry time
 
 ### system
 
-- `npm run system:send -- --text "系统消息"`
+- `npm run system:send -- --text "System message"`
 - `npm run system:checkin`
 
-说明：
-- `checkin` 更推荐跟随共享模式一起开：`npm run shared:start`
-- `system:checkin` 仅保留为底层轮询入口
+Notes:
+- `checkin` is usually better started through shared mode: `npm run shared:start`
+- `system:checkin` remains available as the low-level polling entrypoint
 
 ### timeline
 
@@ -101,13 +100,16 @@
 - `npm run timeline:serve`
 - `npm run timeline:dev`
 - `npm run timeline:screenshot -- --send`
+- `TIMELINE_FOR_AGENT_LOCALE=zh-CN npm run timeline:serve`
+- `TIMELINE_FOR_AGENT_LOCALE=en npm run timeline:screenshot -- --send`
 
-说明：
-- `timeline:screenshot -- --send` 会把截图任务发给当前微信桥执行，并自动把结果回传给当前微信用户。
+Notes:
+- `timeline:screenshot -- --send` queues the screenshot for the current WeChat bridge and automatically sends the result back to the current WeChat user.
+- `TIMELINE_FOR_AGENT_LOCALE` supports `en` and `zh-CN` and controls the language of the timeline UI and screenshots.
 
-当前文档里列出的 `reminder / diary / system / timeline` 都已可直接使用。
+All `reminder / diary / system / timeline` commands listed here are already usable.
 
-## 当前已接入的微信命令
+## Current WeChat Commands
 
 - `/bind`
 - `/status`
@@ -122,9 +124,7 @@
 - `/model <id>`
 - `/help`
 
-说明：
+Notes:
 
-- `/status` 合并了原先 `where` 和 `usage` 的职责
-- `/help` 保留
-- `/reread` 先不做，自然语言触发即可
-- 文件发送能力仍保留，但不再暴露成微信命令
+- `/status` now covers what used to be split between `where` and `usage`
+- file sending is still available, but no longer exposed as a WeChat command
