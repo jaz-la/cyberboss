@@ -8,6 +8,7 @@ const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
 const { findModelByQuery } = require("../adapters/runtime/codex/model-catalog");
 const { createTimelineIntegration } = require("../integrations/timeline");
 const { buildAgentCommandGuide, buildWeixinHelpText } = require("./command-registry");
+const { CheckinConfigStore, parseCheckinRangeMinutes, resolveDefaultCheckinRange } = require("./checkin-config-store");
 const { resolvePreferredSenderId } = require("./default-targets");
 const { StreamDelivery } = require("./stream-delivery");
 const { ThreadStateStore } = require("./thread-state-store");
@@ -36,6 +37,7 @@ class CyberbossApp {
     this.threadStateStore = new ThreadStateStore();
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
     this.deferredSystemReplyQueue = new DeferredSystemReplyStore({ filePath: config.deferredSystemReplyQueueFile });
+    this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
     this.timelineScreenshotQueue = new TimelineScreenshotQueueStore({ filePath: config.timelineScreenshotQueueFile });
     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
     this.systemMessageDispatcher = null;
@@ -625,6 +627,9 @@ class CyberbossApp {
       case "stop":
         await this.handleStopCommand(normalized);
         return;
+      case "checkin":
+        await this.handleCheckinCommand(normalized, command);
+        return;
       case "yes":
       case "always":
       case "no":
@@ -838,6 +843,39 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `Stop request sent.\n\nthread: ${threadId}`,
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  async handleCheckinCommand(normalized, command) {
+    const rangeInput = normalizeCommandArgument(command.args);
+    if (!rangeInput) {
+      const currentRange = this.checkinConfigStore.getRange(resolveDefaultCheckinRange());
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `Current check-in interval is ${Math.round(currentRange.minIntervalMs / 60000)}-${Math.round(currentRange.maxIntervalMs / 60000)} minutes.`,
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    const parsedRange = parseCheckinRangeMinutes(rangeInput);
+    if (!parsedRange) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "Usage: /checkin 3-60",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
+    this.checkinConfigStore.setRange({
+      minIntervalMs: parsedRange.minMinutes * 60_000,
+      maxIntervalMs: parsedRange.maxMinutes * 60_000,
+    });
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
       contextToken: normalized.contextToken,
     });
   }

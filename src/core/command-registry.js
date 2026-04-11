@@ -118,6 +118,13 @@ const COMMAND_GROUPS = [
         weixin: ["/stop"],
         status: "active",
       },
+      {
+        action: "system.checkin_range",
+        summary: "Reset the proactive check-in range in minutes",
+        terminal: [],
+        weixin: ["/checkin <min>-<max>"],
+        status: "active",
+      },
     ],
   },
   {

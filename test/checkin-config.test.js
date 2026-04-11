@@ -1,0 +1,65 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const {
+  CheckinConfigStore,
+  DEFAULT_MIN_INTERVAL_MS,
+  DEFAULT_MAX_INTERVAL_MS,
+  parseCheckinRangeMinutes,
+} = require("../src/core/checkin-config-store");
+const { CyberbossApp } = require("../src/core/app");
+
+function createStore() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cyberboss-checkin-test-"));
+  return new CheckinConfigStore({ filePath: path.join(dir, "checkin-config.json") });
+}
+
+test("parseCheckinRangeMinutes accepts min-max minute ranges", () => {
+  assert.deepEqual(parseCheckinRangeMinutes("3-60"), { minMinutes: 3, maxMinutes: 60 });
+  assert.deepEqual(parseCheckinRangeMinutes("5 - 10"), { minMinutes: 5, maxMinutes: 10 });
+  assert.equal(parseCheckinRangeMinutes("10-3"), null);
+  assert.equal(parseCheckinRangeMinutes("abc"), null);
+});
+
+test("checkin config store falls back to defaults and persists overrides", () => {
+  const store = createStore();
+  assert.deepEqual(store.getRange(), {
+    minIntervalMs: DEFAULT_MIN_INTERVAL_MS,
+    maxIntervalMs: DEFAULT_MAX_INTERVAL_MS,
+  });
+  store.setRange({ minIntervalMs: 4 * 60_000, maxIntervalMs: 25 * 60_000 });
+  assert.deepEqual(store.getRange(), {
+    minIntervalMs: 4 * 60_000,
+    maxIntervalMs: 25 * 60_000,
+  });
+});
+
+test("handleCheckinCommand stores the new range and replies in English", async () => {
+  const sent = [];
+  const store = createStore();
+  const appLike = {
+    checkinConfigStore: store,
+    channelAdapter: {
+      async sendText(payload) {
+        sent.push(payload);
+      },
+    },
+  };
+
+  await CyberbossApp.prototype.handleCheckinCommand.call(appLike, {
+    senderId: "user-1",
+    contextToken: "ctx-1",
+  }, {
+    args: "7-21",
+  });
+
+  assert.deepEqual(store.getRange(), {
+    minIntervalMs: 7 * 60_000,
+    maxIntervalMs: 21 * 60_000,
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].text, "Check-in interval reset to 7-21 minutes and will apply on the next polling cycle.");
+});
