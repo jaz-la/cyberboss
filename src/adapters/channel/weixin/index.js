@@ -85,7 +85,7 @@ function createWeixinChannelAdapter(config) {
       );
     return sendChunks.reduce((promise, chunk, index) => promise
       .then(() => {
-        const compactChunk = compactPlainTextForWeixin(chunk) || "Completed.";
+        const compactChunk = stripTrailingChineseFullStop(compactPlainTextForWeixin(chunk)) || "Completed.";
         return sendTextV2({
           baseUrl: account.baseUrl,
           token: account.token,
@@ -241,6 +241,10 @@ function splitUtf8(text, maxRunes) {
 function compactPlainTextForWeixin(text) {
   const normalized = String(text || "").replace(/\r\n/g, "\n");
   return trimOuterBlankLines(normalized.replace(/\n\s*\n+/g, "\n"));
+}
+
+function stripTrailingChineseFullStop(text) {
+  return String(text || "").replace(/。+$/u, "").trimEnd();
 }
 
 function chunkReplyText(text, limit = 3500) {

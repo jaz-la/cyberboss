@@ -5,7 +5,7 @@ const { SessionStore } = require("../adapters/runtime/codex/session-store");
 const { resolvePreferredSenderId, resolvePreferredWorkspaceRoot } = require("../core/default-targets");
 const { SystemMessageQueueStore } = require("../core/system-message-queue-store");
 
-const DEFAULT_MIN_INTERVAL_MS = 5*60_000;
+const DEFAULT_MIN_INTERVAL_MS = 3*60_000;
 const DEFAULT_MAX_INTERVAL_MS = 60*60_000;
 const INTERNAL_CHECKIN_TRIGGER_TEMPLATE = "%USER% comes to mind again.";
 
@@ -25,7 +25,7 @@ async function runSystemCheckinPoller(config) {
 
   while (true) {
     const delayMs = pickRandomDelayMs(minIntervalMs, maxIntervalMs);
-    const wakeAt = new Date(Date.now() + delayMs).toISOString();
+    const wakeAt = formatLocalTime(Date.now() + delayMs);
     console.log(`[cyberboss] next checkin in ${Math.round(delayMs / 60000)}m at ${wakeAt}`);
     await sleep(delayMs);
 
@@ -89,6 +89,23 @@ function normalizeText(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatLocalTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value || "");
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date).replace(/\//g, "-");
 }
 
 function buildCheckinTrigger(config) {
