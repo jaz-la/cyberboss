@@ -39,6 +39,22 @@ test("rejects missing timezone values", () => {
   );
 });
 
+test("readConfig defaults userTimezone to Asia/Shanghai when env is missing", () => {
+  const previous = process.env.CYBERBOSS_USER_TIMEZONE;
+  delete process.env.CYBERBOSS_USER_TIMEZONE;
+
+  try {
+    const config = readConfig();
+    assert.equal(config.userTimezone, "Asia/Shanghai");
+  } finally {
+    if (previous == null) {
+      delete process.env.CYBERBOSS_USER_TIMEZONE;
+    } else {
+      process.env.CYBERBOSS_USER_TIMEZONE = previous;
+    }
+  }
+});
+
 test("readConfig exposes validated userTimezone", () => {
   const previous = process.env.CYBERBOSS_USER_TIMEZONE;
   process.env.CYBERBOSS_USER_TIMEZONE = "Asia/Shanghai";
