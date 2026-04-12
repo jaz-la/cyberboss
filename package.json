@@ -15,6 +15,7 @@
   "scripts": {
     "start": "node ./bin/cyberboss.js start",
     "start:checkin": "node ./bin/cyberboss.js start --checkin",
+    "stop": "pkill -f 'codex app-server' || true",
     "login": "node ./bin/cyberboss.js login",
     "accounts": "node ./bin/cyberboss.js accounts",
     "doctor": "node ./bin/cyberboss.js doctor",
