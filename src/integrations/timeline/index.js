@@ -22,6 +22,7 @@ function createTimelineIntegration(config) {
       if (!normalizedSubcommand) {
         throw new Error("timeline subcommand cannot be empty");
       }
+      ensureTimelineTimezone(config.stateDir, config.userTimezone);
       const prepared = prepareTimelineInvocation(normalizedSubcommand, args);
       return runTimelineCommand(binPath, [normalizedSubcommand, ...prepared.args], {
         TIMELINE_FOR_AGENT_STATE_DIR: config.stateDir,
@@ -32,6 +33,61 @@ function createTimelineIntegration(config) {
       });
     },
   };
+}
+
+function ensureTimelineTimezone(stateDir, userTimezone) {
+  const timezone = normalizeText(userTimezone);
+  const resolvedStateDir = normalizeText(stateDir);
+  if (!timezone || !resolvedStateDir) {
+    return;
+  }
+  const timelineDir = path.join(resolvedStateDir, "timeline");
+  fs.mkdirSync(timelineDir, { recursive: true });
+
+  const stateFilePath = path.join(timelineDir, "timeline-state.json");
+  const taxonomyFilePath = path.join(timelineDir, "timeline-taxonomy.json");
+  const factsFilePath = path.join(timelineDir, "timeline-facts.json");
+
+  const state = readJsonFileOrNull(stateFilePath);
+  if (state && typeof state === "object") {
+    patchTimezoneField(stateFilePath, state, timezone);
+    return;
+  }
+
+  const taxonomy = readJsonFileOrNull(taxonomyFilePath);
+  const facts = readJsonFileOrNull(factsFilePath);
+
+  if (taxonomy && typeof taxonomy === "object") {
+    patchTimezoneField(taxonomyFilePath, taxonomy, timezone);
+  } else {
+    writeJsonFile(taxonomyFilePath, { version: 1, timezone, taxonomy: {} });
+  }
+
+  if (facts && typeof facts === "object") {
+    patchTimezoneField(factsFilePath, facts, timezone);
+  }
+}
+
+function patchTimezoneField(filePath, payload, timezone) {
+  if (payload.timezone === timezone) {
+    return;
+  }
+  payload.timezone = timezone;
+  writeJsonFile(filePath, payload);
+}
+
+function readJsonFileOrNull(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJsonFile(filePath, payload) {
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
 }
 
 function resolveTimelineBinPath() {
@@ -217,5 +273,6 @@ function detectTimelineWriteFailure(stdout, stderr) {
 
 module.exports = {
   createTimelineIntegration,
+  ensureTimelineTimezone,
   prepareTimelineInvocation,
 };
