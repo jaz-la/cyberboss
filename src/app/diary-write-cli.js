@@ -10,8 +10,9 @@ async function runDiaryWriteCommand(config) {
   }
 
   const now = new Date();
-  const dateString = options.date || formatDate(now);
-  const timeString = options.time || formatTime(now);
+  const timeZone = config.userTimezone;
+  const dateString = options.date || formatDiaryDate(now, timeZone);
+  const timeString = options.time || formatDiaryTime(now, timeZone);
   const filePath = path.join(config.diaryDir, `${dateString}.md`);
   const entry = buildDiaryEntry({
     timeString,
@@ -114,18 +115,18 @@ function normalizeBody(value) {
   return String(value || "").replace(/\r\n/g, "\n").trim();
 }
 
-function formatDate(date) {
+function formatDiaryDate(date, timeZone) {
   return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Shanghai",
+    timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   }).format(date);
 }
 
-function formatTime(date) {
+function formatDiaryTime(date, timeZone) {
   return new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Shanghai",
+    timeZone,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -136,4 +137,6 @@ module.exports = {
   parseArgs,
   resolveBody,
   runDiaryWriteCommand,
+  formatDiaryDate,
+  formatDiaryTime,
 };

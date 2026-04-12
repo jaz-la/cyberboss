@@ -6,7 +6,11 @@ const path = require("path");
 
 const { buildAgentCommandGuide, buildAgentCommandReminder } = require("../src/core/command-registry");
 const { resolveBody: resolveReminderBody } = require("../src/app/reminder-write-cli");
-const { resolveBody: resolveDiaryBody } = require("../src/app/diary-write-cli");
+const {
+  resolveBody: resolveDiaryBody,
+  formatDiaryDate,
+  formatDiaryTime,
+} = require("../src/app/diary-write-cli");
 const { prepareTimelineInvocation } = require("../src/integrations/timeline");
 
 function createTempFile(name, content) {
@@ -50,6 +54,18 @@ test("diary body can be loaded from --text-file", async () => {
   const filePath = createTempFile("diary.md", "\nline one\nline two\n");
   const body = await resolveDiaryBody({ text: "", textFile: filePath, useStdin: false });
   assert.equal(body, "line one\nline two");
+});
+
+test("diary date formatter respects the given timezone", () => {
+  const utc = new Date("2026-04-11T06:23:00.000Z");
+  assert.equal(formatDiaryDate(utc, "America/Los_Angeles"), "2026-04-10");
+  assert.equal(formatDiaryDate(utc, "Asia/Shanghai"), "2026-04-11");
+});
+
+test("diary time formatter respects the given timezone", () => {
+  const utc = new Date("2026-04-11T06:23:00.000Z");
+  assert.equal(formatDiaryTime(utc, "America/Los_Angeles"), "23:23");
+  assert.equal(formatDiaryTime(utc, "Asia/Shanghai"), "14:23");
 });
 
 test("timeline invocation translates --locale and --events-file", () => {
