@@ -15,6 +15,7 @@ async function runDiaryWriteCommand(config) {
   const timeString = options.time || formatDiaryTime(now, timeZone);
   const filePath = path.join(config.diaryDir, `${dateString}.md`);
   const entry = buildDiaryEntry({
+    dateString,
     timeString,
     title: options.title,
     body,
@@ -106,8 +107,10 @@ function readStdin() {
   });
 }
 
-function buildDiaryEntry({ timeString, title, body }) {
-  const heading = title ? `## ${timeString} ${title.trim()}` : `## ${timeString}`;
+function buildDiaryEntry({ dateString, timeString, title, body }) {
+  const stamp = `${dateString} ${timeString}`;
+  const trimmedTitle = String(title || "").trim();
+  const heading = trimmedTitle ? `## ${stamp} ${trimmedTitle}` : `## ${stamp}`;
   return `${heading}\n\n${body}`;
 }
 
@@ -139,4 +142,5 @@ module.exports = {
   runDiaryWriteCommand,
   formatDiaryDate,
   formatDiaryTime,
+  buildDiaryEntry,
 };

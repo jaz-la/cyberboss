@@ -283,9 +283,9 @@ The following commands are primarily for agents and automations, not the main da
   Safer reminder entry for long or quote-heavy text
 - `npm run reminder:write -- --at "2026-04-07 21:30" --text "Reminder text"`
   Write a reminder at an explicit time
-- `npm run diary:write -- --title Title --text "Content"`
-  Write a local diary entry
-- `npm run diary:write -- --date 2026-04-06 --title "4.6" --text "Content"`
+- `npm run diary:write -- --text "Content"`
+  Write a local diary entry (heading carries the full date and time)
+- `npm run diary:write -- --date 2026-04-06 --text "Content"`
   Write a diary entry into a specific date file
 - `npm run timeline:write -- --date YYYY-MM-DD --stdin`
   Incrementally write timeline events

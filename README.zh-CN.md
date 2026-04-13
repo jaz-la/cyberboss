@@ -290,9 +290,9 @@ ${HOME}/.cyberboss
   给未来的自己留 reminder
 - `npm run reminder:write -- --at "2026-04-07 21:30" --text "提醒内容"`
   写明确时间点 reminder
-- `npm run diary:write -- --title 标题 --text "内容"`
-  写本地日记
-- `npm run diary:write -- --date 2026-04-06 --title "4.6" --text "内容"`
+- `npm run diary:write -- --text "内容"`
+  写本地日记（标题行自带完整日期和时间）
+- `npm run diary:write -- --date 2026-04-06 --text "内容"`
   写指定日期日记
 - `npm run timeline:write -- --date YYYY-MM-DD --stdin`
   增量写入时间轴

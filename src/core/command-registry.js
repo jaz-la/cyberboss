@@ -426,7 +426,8 @@ function buildTopicUsage(topic) {
         "  --time HH:mm          optional, overrides the entry time",
         "",
         "Example:",
-        "  cyberboss diary write --date 2026-04-06 --title \"4.6\" --text-file /absolute/path/to/entry.md",
+        "  cyberboss diary write --date 2026-04-06 --text-file /absolute/path/to/entry.md",
+        "Heading format: `## YYYY-MM-DD HH:mm` (plus the trimmed --title when supplied).",
       ].join("\n");
     case "channel":
       return [
@@ -465,8 +466,8 @@ function buildScopedTopicHelp(topic) {
       ].join("\n");
     case "diary":
       return [
-        `${buildAgentCommandInvocation(["diary", "write", "--title", "Title", "--text", "Content"])}`,
-        `${buildAgentCommandInvocation(["diary", "write", "--date", "YYYY-MM-DD", "--title", "Title", "--text-file", "/absolute/path/to/entry.md"])}   long text`,
+        `${buildAgentCommandInvocation(["diary", "write", "--text", "Content"])}`,
+        `${buildAgentCommandInvocation(["diary", "write", "--date", "YYYY-MM-DD", "--text-file", "/absolute/path/to/entry.md"])}   long text`,
       ].join("\n");
     case "timeline":
       return [

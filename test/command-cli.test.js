@@ -10,6 +10,7 @@ const {
   resolveBody: resolveDiaryBody,
   formatDiaryDate,
   formatDiaryTime,
+  buildDiaryEntry,
 } = require("../src/app/diary-write-cli");
 const { prepareTimelineInvocation } = require("../src/integrations/timeline");
 
@@ -66,6 +67,26 @@ test("diary time formatter respects the given timezone", () => {
   const utc = new Date("2026-04-11T06:23:00.000Z");
   assert.equal(formatDiaryTime(utc, "America/Los_Angeles"), "23:23");
   assert.equal(formatDiaryTime(utc, "Asia/Shanghai"), "14:23");
+});
+
+test("diary entry heading carries the full date so it is self-contained", () => {
+  const entry = buildDiaryEntry({
+    dateString: "2026-04-12",
+    timeString: "15:33",
+    title: "",
+    body: "开题了",
+  });
+  assert.equal(entry, "## 2026-04-12 15:33\n\n开题了");
+});
+
+test("diary entry heading appends optional title after the date and time", () => {
+  const entry = buildDiaryEntry({
+    dateString: "2026-04-12",
+    timeString: "15:33",
+    title: "   open session   ",
+    body: "开题了",
+  });
+  assert.equal(entry, "## 2026-04-12 15:33 open session\n\n开题了");
 });
 
 test("timeline invocation translates --locale and --events-file", () => {

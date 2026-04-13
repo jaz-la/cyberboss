@@ -76,8 +76,9 @@ Notes:
 
 ### diary
 
+- `npm run diary:write -- --text "Content"`
 - `npm run diary:write -- --title "Title" --text "Content"`
-- `npm run diary:write -- --date 2026-04-06 --title "4.6" --text "Content"`
+- `npm run diary:write -- --date 2026-04-06 --text "Content"`
 
 Notes:
 - `--title` only affects the entry title
