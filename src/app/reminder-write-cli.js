@@ -6,6 +6,7 @@ const { loadPersistedContextTokens } = require("../adapters/channel/weixin/conte
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
 const { SessionStore } = require("../adapters/runtime/codex/session-store");
 const { resolvePreferredSenderId } = require("../core/default-targets");
+const { assertValidUserTimezone } = require("../core/user-timezone");
 
 const DELAY_UNIT_MS = {
   s: 1_000,
@@ -13,8 +14,6 @@ const DELAY_UNIT_MS = {
   h: 60 * 60_000,
   d: 24 * 60 * 60_000,
 };
-const LOCAL_TIMEZONE_OFFSET = "+08:00";
-
 async function runReminderWriteCommand(config) {
   const args = process.argv.slice(4);
   const options = parseArgs(args);
@@ -22,8 +21,7 @@ async function runReminderWriteCommand(config) {
   if (!body) {
     throw new Error("Reminder text cannot be empty. Pass --text, --text-file, or provide input through stdin.");
   }
-
-  const dueAtMs = resolveDueAtMs(options);
+  const dueAtMs = resolveDueAtMs(options, config.userTimezone);
   if (!Number.isFinite(dueAtMs) || dueAtMs <= Date.now()) {
     throw new Error("Missing a valid time. Use --delay 30s|10m|1h30m|2d4h20m or --at 2026-04-07T21:30+08:00.");
   }
@@ -104,9 +102,9 @@ function parseArgs(args) {
   return options;
 }
 
-function resolveDueAtMs(options) {
+function resolveDueAtMs(options, userTimezone) {
   const delayMs = parseDelay(options.delay);
-  const scheduledAtMs = parseAbsoluteTime(options.at);
+  const scheduledAtMs = parseAbsoluteTime(options.at, userTimezone);
   if (delayMs && scheduledAtMs) {
     throw new Error("--delay and --at cannot be used together");
   }
@@ -153,18 +151,18 @@ function parseDelay(rawValue) {
   return totalMs > 0 ? totalMs : 0;
 }
 
-function parseAbsoluteTime(rawValue) {
+function parseAbsoluteTime(rawValue, userTimezone) {
   const normalized = String(rawValue || "").trim();
   if (!normalized) {
     return 0;
   }
 
-  const normalizedIso = normalizeAbsoluteTimeString(normalized);
+  const normalizedIso = normalizeAbsoluteTimeString(normalized, userTimezone);
   const parsed = Date.parse(normalizedIso);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function normalizeAbsoluteTimeString(value) {
+function normalizeAbsoluteTimeString(value, userTimezone) {
   const normalized = String(value || "").trim();
   if (!normalized) {
     return "";
@@ -176,15 +174,92 @@ function normalizeAbsoluteTimeString(value) {
 
   const dateTimeMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)$/);
   if (dateTimeMatch) {
-    return `${dateTimeMatch[1]}T${dateTimeMatch[2]}${LOCAL_TIMEZONE_OFFSET}`;
+    return buildIsoStringForTimezone(dateTimeMatch[1], dateTimeMatch[2], userTimezone);
   }
 
   const dateOnlyMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})$/);
   if (dateOnlyMatch) {
-    return `${dateOnlyMatch[1]}T09:00:00${LOCAL_TIMEZONE_OFFSET}`;
+    return buildIsoStringForTimezone(dateOnlyMatch[1], "09:00:00", userTimezone);
   }
 
   return normalized;
+}
+
+function buildIsoStringForTimezone(datePart, timePart, userTimezone) {
+  const timeZone = assertValidUserTimezone(userTimezone || "Asia/Shanghai");
+  const normalizedTime = normalizeClockTime(timePart);
+  const utcDate = findMatchingUtcDate(datePart, normalizedTime, timeZone);
+  if (!utcDate) {
+    return `${datePart}T${normalizedTime}`;
+  }
+  const offset = buildUtcOffsetString(utcDate, timeZone);
+  return `${datePart}T${normalizedTime}${offset}`;
+}
+
+function normalizeClockTime(value) {
+  const normalized = String(value || "").trim();
+  if (/^\d{2}:\d{2}$/.test(normalized)) {
+    return `${normalized}:00`;
+  }
+  return normalized;
+}
+
+function findMatchingUtcDate(datePart, timePart, timeZone) {
+  const target = `${datePart} ${timePart}`;
+  const baseUtcMs = Date.parse(`${datePart}T${timePart}Z`);
+  if (!Number.isFinite(baseUtcMs)) {
+    return null;
+  }
+
+  for (let hourOffset = -36; hourOffset <= 36; hourOffset += 1) {
+    const candidate = new Date(baseUtcMs - hourOffset * 60 * 60 * 1_000);
+    if (formatWallClock(candidate, timeZone) === target) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function formatWallClock(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return `${values.year}-${values.month}-${values.day} ${values.hour}:${values.minute}:${values.second}`;
+}
+
+function buildUtcOffsetString(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+    hour: "2-digit",
+  }).formatToParts(date);
+  const offsetPart = parts.find((part) => part.type === "timeZoneName")?.value;
+
+  if (!offsetPart || offsetPart === "GMT") {
+    return "+00:00";
+  }
+
+  const match = /^GMT([+-])(\d{1,2})(?::(\d{2}))?$/.exec(offsetPart);
+  if (!match) {
+    return offsetPart.replace(/^GMT/, "");
+  }
+
+  const [, sign, hours, minutes = "00"] = match;
+  return `${sign}${hours.padStart(2, "0")}:${minutes}`;
 }
 
 async function resolveBody(options) {
@@ -228,6 +303,7 @@ function normalizeBody(value) {
 
 module.exports = {
   parseArgs,
+  parseAbsoluteTime,
   resolveBody,
   runReminderWriteCommand,
 };

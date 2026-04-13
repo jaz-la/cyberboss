@@ -5,7 +5,10 @@ const os = require("os");
 const path = require("path");
 
 const { buildAgentCommandGuide, buildAgentCommandReminder } = require("../src/core/command-registry");
-const { resolveBody: resolveReminderBody } = require("../src/app/reminder-write-cli");
+const {
+  parseAbsoluteTime,
+  resolveBody: resolveReminderBody,
+} = require("../src/app/reminder-write-cli");
 const {
   resolveBody: resolveDiaryBody,
   formatDiaryDate,
@@ -49,6 +52,14 @@ test("reminder body can be loaded from --text-file", async () => {
   const filePath = createTempFile("reminder.txt", "  remember me  \n");
   const body = await resolveReminderBody({ text: "", textFile: filePath, useStdin: false });
   assert.equal(body, "remember me");
+});
+
+test("reminder absolute time respects the configured user timezone", () => {
+  const losAngeles = parseAbsoluteTime("2026-04-12 22:20", "America/Los_Angeles");
+  const shanghai = parseAbsoluteTime("2026-04-12 22:20", "Asia/Shanghai");
+
+  assert.equal(new Date(losAngeles).toISOString(), "2026-04-13T05:20:00.000Z");
+  assert.equal(new Date(shanghai).toISOString(), "2026-04-12T14:20:00.000Z");
 });
 
 test("diary body can be loaded from --text-file", async () => {
