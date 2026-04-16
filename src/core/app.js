@@ -5,6 +5,7 @@ const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
 const { persistIncomingWeixinAttachments } = require("../adapters/channel/weixin/media-receive");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
+const { createClaudeCodeRuntimeAdapter } = require("../adapters/runtime/claudecode");
 const { findModelByQuery } = require("../adapters/runtime/codex/model-catalog");
 const { createTimelineIntegration } = require("../integrations/timeline");
 const { buildAgentCommandGuide, buildWeixinHelpText } = require("./command-registry");
@@ -29,11 +30,18 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const FIRST_RUNTIME_EVENT_NOTICE_TIMEOUT_MS = 8_000;
 const FIRST_RUNTIME_EVENT_FAILURE_TIMEOUT_MS = 45_000;
 
+function createRuntimeAdapter(config) {
+  if (config.runtime === "claudecode") {
+    return createClaudeCodeRuntimeAdapter(config);
+  }
+  return createCodexRuntimeAdapter(config);
+}
+
 class CyberbossApp {
   constructor(config) {
     this.config = config;
     this.channelAdapter = createWeixinChannelAdapter(config);
-    this.runtimeAdapter = createCodexRuntimeAdapter(config);
+    this.runtimeAdapter = createRuntimeAdapter(config);
     this.timelineIntegration = createTimelineIntegration(config);
     this.threadStateStore = new ThreadStateStore();
     this.systemMessageQueue = new SystemMessageQueueStore({ filePath: config.systemMessageQueueFile });
@@ -105,8 +113,8 @@ class CyberbossApp {
     console.log(`[cyberboss] workspaceRoot=${this.config.workspaceRoot}`);
     console.log(`[cyberboss] knownContextTokens=${knownContextTokens}`);
     console.log(`[cyberboss] syncBuffer=${syncBuffer ? "ready" : "empty"}`);
-    console.log(`[cyberboss] codexEndpoint=${runtimeState.endpoint}`);
-    console.log(`[cyberboss] codexModels=${runtimeState.models.length}`);
+    console.log(`[cyberboss] runtimeEndpoint=${runtimeState.endpoint || runtimeState.command || "(spawn)"}`);
+    console.log(`[cyberboss] runtimeModels=${runtimeState.models?.length || 0}`);
     console.log("[cyberboss] bridge loop started; waiting for WeChat messages.");
     if (this.config.startWithCheckin) {
       console.log("[cyberboss] checkin: enabled");
@@ -353,7 +361,7 @@ class CyberbossApp {
         bindingKey,
         workspaceRoot,
         text: prepared.text,
-        model: this.runtimeAdapter.getSessionStore().getCodexParamsForWorkspace(bindingKey, workspaceRoot).model,
+        model: this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
         metadata: {
           workspaceId: prepared.workspaceId,
           accountId: prepared.accountId,
@@ -387,7 +395,7 @@ class CyberbossApp {
       const messageText = error instanceof Error ? error.message : String(error || "unknown error");
       await this.channelAdapter.sendText({
         userId: prepared.senderId,
-        text: `Request failed: ${messageText}`,
+        text: `❌ Request failed\n${messageText}`,
         contextToken: prepared.contextToken,
       }).catch(() => {});
       return false;
@@ -471,6 +479,9 @@ class CyberbossApp {
       return;
     }
 
+    const runtimeName = this.runtimeAdapter.describe().id || "runtime";
+    const isCodex = runtimeName === "codex";
+
     this.clearRuntimeEventWatchdog(normalizedThreadId);
     const noticeTimer = setTimeout(async () => {
       const watchdog = this.pendingRuntimeEventWatchdogs.get(normalizedThreadId);
@@ -482,17 +493,26 @@ class CyberbossApp {
         return;
       }
       watchdog.noticeSent = true;
+      const noticeLines = isCodex
+        ? [
+            `⏳ This message has already reached the bridge, but ${runtimeName} has not returned the first event yet.`,
+            "If your terminal is still reconnecting, this round is probably still stuck in shared-thread startup.",
+            "You do not need to keep waiting in chat. If it reconnects later, the message will continue.",
+            `workspace: ${workspaceRoot}`,
+            `thread: ${normalizedThreadId}`,
+          ]
+        : [
+            `⏳ This message has already reached the bridge, but ${runtimeName} has not returned the first event yet.`,
+            "The runtime process may still be starting up.",
+            "You do not need to keep waiting in chat. If it reconnects later, the message will continue.",
+            `workspace: ${workspaceRoot}`,
+            `thread: ${normalizedThreadId}`,
+          ];
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
         contextToken: normalized.contextToken,
         preserveBlock: true,
-        text: [
-          "This message has already reached the bridge, but Codex runtime has not returned the first event yet.",
-          "If your terminal is still reconnecting, this round is probably still stuck in shared-thread startup.",
-          "You do not need to keep waiting in chat. If it reconnects later, the message will continue.",
-          `workspace: ${workspaceRoot}`,
-          `thread: ${normalizedThreadId}`,
-        ].join("\n"),
+        text: noticeLines.join("\n"),
       }).catch(() => {});
     }, FIRST_RUNTIME_EVENT_NOTICE_TIMEOUT_MS);
     const failureTimer = setTimeout(async () => {
@@ -506,22 +526,31 @@ class CyberbossApp {
         status: 0,
         contextToken: normalized.contextToken,
       }).catch(() => {});
+      const failureLines = isCodex
+        ? [
+            `❌ This message has already reached the bridge, but ${runtimeName} still has not returned the first event.`,
+            "If the reconnecting cycle in the terminal already finished 5 attempts, this shared thread most likely never started successfully.",
+            `workspace: ${workspaceRoot}`,
+            `thread: ${normalizedThreadId}`,
+            "Check these first: whether the shared app-server is healthy, whether the terminal is attached to the same thread, and whether runtime actually started processing this message.",
+            "Recommended order:",
+            "1. Run `npm run shared:status` in the project directory",
+            "2. If the bridge is down, run `npm run shared:start`",
+            "3. Open another terminal and run `npm run shared:open`",
+            "4. Confirm the terminal is attached to the same thread shown above, not a private thread",
+          ]
+        : [
+            `❌ This message has already reached the bridge, but ${runtimeName} still has not returned the first event.`,
+            "The runtime process may have failed to start or exited unexpectedly.",
+            `workspace: ${workspaceRoot}`,
+            `thread: ${normalizedThreadId}`,
+            "Check whether the runtime process is still running, or run `npm run shared:status`.",
+          ];
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
         contextToken: normalized.contextToken,
         preserveBlock: true,
-        text: [
-          "This message has already reached the bridge, but Codex runtime still has not returned the first event.",
-          "If the reconnecting cycle in the terminal already finished 5 attempts, this shared thread most likely never started successfully.",
-          `workspace: ${workspaceRoot}`,
-          `thread: ${normalizedThreadId}`,
-          "Check these first: whether the shared app-server is healthy, whether the terminal is attached to the same thread, and whether runtime actually started processing this message.",
-          "Recommended order:",
-          "1. Run `npm run shared:status` in the project directory",
-          "2. If the bridge is down, run `npm run shared:start`",
-          "3. Open another terminal and run `npm run shared:open`",
-          "4. Confirm the terminal is attached to the same thread shown above, not a private thread",
-        ].join("\n"),
+        text: failureLines.join("\n"),
       }).catch(() => {});
     }, FIRST_RUNTIME_EVENT_FAILURE_TIMEOUT_MS);
     this.pendingRuntimeEventWatchdogs.set(normalizedThreadId, {
@@ -561,7 +590,7 @@ class CyberbossApp {
       return {
         ...normalized,
         originalText: normalized.text,
-        text: buildCodexInboundText(normalized, { saved: [], failed: [] }, this.config),
+        text: buildInboundText(normalized, { saved: [], failed: [] }, this.config),
         attachments: [],
         attachmentFailures: [],
       };
@@ -578,18 +607,18 @@ class CyberbossApp {
     if (!persisted.saved.length && persisted.failed.length && !String(normalized.text || "").trim()) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Failed to receive image or attachment: ${persisted.failed.map((item) => item.reason).join("; ")}`,
+        text: `⚠️ Failed to receive image or attachment\n${persisted.failed.map((item) => item.reason).join("\n")}`,
         contextToken: normalized.contextToken,
         preserveBlock: true,
       }).catch(() => {});
       return null;
     }
 
-    const codexInboundText = buildCodexInboundText(normalized, persisted, this.config);
+    const codexInboundText = buildInboundText(normalized, persisted, this.config);
     if (!codexInboundText) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Failed to receive image or attachment: ${persisted.failed.map((item) => item.reason).join("; ")}`,
+        text: `⚠️ Failed to receive image or attachment\n${persisted.failed.map((item) => item.reason).join("\n")}`,
         contextToken: normalized.contextToken,
         preserveBlock: true,
       }).catch(() => {});
@@ -637,7 +666,7 @@ class CyberbossApp {
         }).catch(() => {});
         await this.channelAdapter.sendText({
           userId: job.senderId,
-          text: `Timeline screenshot failed: ${messageText}`,
+          text: `❌ Timeline screenshot failed\n${messageText}`,
           preserveBlock: true,
         }).catch(() => {});
       }
@@ -745,6 +774,9 @@ class CyberbossApp {
       case "model":
         await this.handleModelCommand(normalized, command);
         return;
+      case "star":
+        await this.handleStarCommand(normalized);
+        return;
       case "help":
         await this.handleHelpCommand(normalized);
         return;
@@ -762,7 +794,7 @@ class CyberbossApp {
     if (!workspaceRoot) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "Usage: /bind /absolute/path",
+        text: "💡 Usage: /bind /absolute/path",
         contextToken: normalized.contextToken,
       });
       return;
@@ -771,7 +803,7 @@ class CyberbossApp {
     if (!isAbsoluteWorkspacePath(workspaceRoot)) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "Only absolute paths are supported for /bind.",
+        text: "⚠️ Only absolute paths are supported for /bind.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -781,7 +813,7 @@ class CyberbossApp {
     if (!stats?.isDirectory()) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Workspace does not exist: ${workspaceRoot}`,
+        text: `❌ Workspace does not exist\n${workspaceRoot}`,
         contextToken: normalized.contextToken,
       });
       return;
@@ -795,7 +827,7 @@ class CyberbossApp {
     this.runtimeAdapter.getSessionStore().setActiveWorkspaceRoot(bindingKey, workspaceRoot);
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Workspace bound.\n\nworkspace: ${workspaceRoot}`,
+      text: `✅ Workspace bound\nworkspace: ${workspaceRoot}`,
       contextToken: normalized.contextToken,
     });
   }
@@ -810,11 +842,19 @@ class CyberbossApp {
     const threadId = this.runtimeAdapter.getSessionStore().getThreadIdForWorkspace(bindingKey, workspaceRoot);
     const threadState = threadId ? this.threadStateStore.getThreadState(threadId) : null;
     const usage = this.threadStateStore.getLatestUsage();
+    const runtimeName = this.runtimeAdapter.describe().id || "runtime";
+    const storedModel = this.runtimeAdapter.getSessionStore().getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model || "";
+    const isLikelyCodexModel = /gpt|o1|o3|codex/i.test(storedModel);
+    const effectiveModel = (runtimeName === "claudecode" && isLikelyCodexModel)
+      ? (this.config.claudeModel || "")
+      : storedModel;
+
     const lines = [
-      `workspace: ${workspaceRoot}`,
-      `thread: ${threadId || "(none)"}`,
-      `status: ${threadState?.status || "idle"}`,
-      `model: ${this.runtimeAdapter.getSessionStore().getCodexParamsForWorkspace(bindingKey, workspaceRoot).model || "(default)"}`,
+      `📍 workspace: ${workspaceRoot}`,
+      `🧵 thread: ${threadId || "(none)"}`,
+      `📊 status: ${threadState?.status || "idle"}`,
+      `🤖 runtime: ${runtimeName}`,
+      `🤖 model: ${effectiveModel || "(default)"}`,
     ];
     if (usage) {
       const usageParts = [];
@@ -830,7 +870,7 @@ class CyberbossApp {
         usageParts.push(`7d ${usage.secondaryUsedPercent}%`);
       }
       if (usageParts.length) {
-        lines.push(`usage: ${usageParts.join(" | ")}`);
+        lines.push(`📈 usage: ${usageParts.join(" | ")}`);
       }
     }
     await this.channelAdapter.sendText({
@@ -850,7 +890,7 @@ class CyberbossApp {
     this.runtimeAdapter.getSessionStore().clearThreadIdForWorkspace(bindingKey, workspaceRoot);
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Switched to a fresh thread draft.\n\nworkspace: ${workspaceRoot}`,
+      text: `✅ Switched to a fresh thread draft\nworkspace: ${workspaceRoot}`,
       contextToken: normalized.contextToken,
     });
   }
@@ -867,7 +907,7 @@ class CyberbossApp {
     if (!threadId) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "There is no active thread yet. Send a normal message first.",
+        text: "💡 There is no active thread yet. Send a normal message first.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -888,12 +928,12 @@ class CyberbossApp {
       await this.runtimeAdapter.refreshThreadInstructions({
         threadId,
         workspaceRoot,
-        model: sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot).model,
+        model: sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model,
       });
     } catch (error) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Reread failed: ${error instanceof Error ? error.message : String(error || "unknown error")}`,
+        text: `❌ Reread failed\n${error instanceof Error ? error.message : String(error || "unknown error")}`,
         contextToken: normalized.contextToken,
       }).catch(() => {});
     }
@@ -904,7 +944,7 @@ class CyberbossApp {
     if (!targetThreadId) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "Usage: /switch <threadId>",
+        text: "💡 Usage: /switch <threadId>",
         contextToken: normalized.contextToken,
       });
       return;
@@ -920,7 +960,7 @@ class CyberbossApp {
     this.runtimeAdapter.getSessionStore().setThreadIdForWorkspace(bindingKey, workspaceRoot, targetThreadId);
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Thread switched.\n\nworkspace: ${workspaceRoot}\nthread: ${targetThreadId}`,
+      text: `✅ Thread switched\nworkspace: ${workspaceRoot}\nthread: ${targetThreadId}`,
       contextToken: normalized.contextToken,
     });
   }
@@ -937,7 +977,7 @@ class CyberbossApp {
     if (!threadId || !threadState?.turnId || threadState.status !== "running") {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "There is no running thread right now.",
+        text: "💡 There is no running thread right now.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -949,7 +989,7 @@ class CyberbossApp {
     });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Stop request sent.\n\nthread: ${threadId}`,
+      text: `⏹️ Stop request sent\nthread: ${threadId}`,
       contextToken: normalized.contextToken,
     });
   }
@@ -960,7 +1000,7 @@ class CyberbossApp {
       const currentRange = this.checkinConfigStore.getRange(resolveDefaultCheckinRange());
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Current check-in interval is ${Math.round(currentRange.minIntervalMs / 60000)}-${Math.round(currentRange.maxIntervalMs / 60000)} minutes.`,
+        text: `⏰ Current check-in interval is ${Math.round(currentRange.minIntervalMs / 60000)}-${Math.round(currentRange.maxIntervalMs / 60000)} minutes.`,
         contextToken: normalized.contextToken,
       });
       return;
@@ -970,7 +1010,7 @@ class CyberbossApp {
     if (!parsedRange) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "Usage: /checkin <min>-<max>",
+        text: "💡 Usage: /checkin <min>-<max>",
         contextToken: normalized.contextToken,
       });
       return;
@@ -982,7 +1022,7 @@ class CyberbossApp {
     });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
+      text: `✅ Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
       contextToken: normalized.contextToken,
     });
   }
@@ -1000,7 +1040,7 @@ class CyberbossApp {
     if (!threadId || approval?.requestId == null || String(approval.requestId).trim() === "") {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "There is no pending approval request right now.",
+        text: "💡 There is no pending approval request right now.",
         contextToken: normalized.contextToken,
       });
       return;
@@ -1023,8 +1063,8 @@ class CyberbossApp {
     }
     this.threadStateStore.resolveApproval(threadId, "running");
     const text = command.name === "always"
-      ? "This command prefix has been remembered. Matching commands in the current workspace will be auto-approved."
-      : (command.name === "yes" ? "This request has been approved." : "This request has been denied.");
+      ? "💡 Auto-approve enabled for this command prefix in the current workspace."
+      : (command.name === "yes" ? "✅ This request has been approved." : "❌ This request has been denied.");
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text,
@@ -1042,7 +1082,7 @@ class CyberbossApp {
     const query = normalizeCommandArgument(command.args);
     const sessionStore = this.runtimeAdapter.getSessionStore();
     const catalog = sessionStore.getAvailableModelCatalog();
-    const currentModel = sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot).model;
+    const currentModel = sessionStore.getRuntimeParamsForWorkspace(bindingKey, workspaceRoot).model;
 
     if (!query) {
       const lines = [
@@ -1061,24 +1101,46 @@ class CyberbossApp {
       return;
     }
 
-    const matched = findModelByQuery(catalog?.models || [], query);
+    const runtimeId = this.runtimeAdapter.describe().id || "runtime";
+    let matched = findModelByQuery(catalog?.models || [], query);
+    if (!matched && runtimeId !== "codex" && !catalog?.models?.length) {
+      matched = { model: query };
+    }
     if (!matched) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: `Model not found: ${query}`,
+        text: `❌ Model not found\n${query}`,
         contextToken: normalized.contextToken,
       });
       return;
     }
 
-    sessionStore.setCodexParamsForWorkspace(bindingKey, workspaceRoot, {
+    sessionStore.setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, {
       model: matched.model,
     });
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
-      text: `Model switched.\n\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
+      text: `✅ Model switched\nworkspace: ${workspaceRoot}\nmodel: ${matched.model}`,
       contextToken: normalized.contextToken,
     });
+  }
+
+  async handleStarCommand(normalized) {
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: [
+        "⭐️ Liked this project? Throw me a star on GitHub!",
+        "It really means a lot to an indie dev working on passion projects 💖",
+        "",
+        "https://github.com/WenXiaoWendy/cyberboss",
+      ].join("\n"),
+      contextToken: normalized.contextToken,
+    });
+    await this.channelAdapter.sendFile({
+      userId: normalized.senderId,
+      filePath: path.join(__dirname, "../../assets/star-guide.jpg"),
+      contextToken: normalized.contextToken,
+    }).catch(() => {});
   }
 
   async handleHelpCommand(normalized) {
@@ -1111,7 +1173,7 @@ class CyberbossApp {
       try {
         this.turnGateStore.releaseThread(event.payload.threadId);
         if (event.type === "runtime.turn.failed") {
-          await this.sendFailureToThread(event.payload.threadId, event.payload.text || "Execution failed");
+          await this.sendFailureToThread(event.payload.threadId, event.payload.text || "❌ Execution failed");
         }
         if (linked?.bindingKey && linked?.workspaceRoot) {
           await this.flushPendingInboundMessages({
@@ -1198,7 +1260,7 @@ class CyberbossApp {
     }
     await this.channelAdapter.sendText({
       userId: target.userId,
-      text: normalizeText(text) || "Execution failed",
+      text: normalizeText(text) || "❌ Execution failed",
       contextToken: target.contextToken,
     }).catch(() => {});
   }
@@ -1597,26 +1659,47 @@ function splitCommandLine(input) {
 function buildApprovalPromptText(approval) {
   const reasonText = normalizeText(approval?.reason);
   const commandText = normalizeText(approval?.command);
-  const sections = ["Codex requests approval"];
+  const toolName = extractToolNameFromReason(reasonText) || "";
+
+  const out = [];
+  out.push(`🔐 【Approval】${toolName ? `#${toolName}#` : "Tool request"}`);
 
   if (reasonText && reasonText !== commandText) {
-    sections.push(`Reason:\n${reasonText}`);
+    out.push(`📋 ${reasonText}`);
   }
 
   if (commandText) {
-    sections.push(`Command:\n${commandText}`);
-  } else if (!reasonText) {
-    sections.push("(unknown)");
+    const lines = commandText.split("\n");
+    const first = lines[0] || "";
+    const rest = lines.slice(1);
+    if (first) {
+      out.push(`⌨️ #${first}#`);
+    }
+    if (rest.length) {
+      out.push(rest.map((line) => `  ${line}`).join("\n"));
+    }
   }
 
-  sections.push([
-    "Reply with one of these commands:",
-    "/yes  allow this request once",
-    "/always  auto-allow matching prefixes in this workspace",
-    "/no  deny this request",
-  ].join("\n"));
+  if (!reasonText && !commandText) {
+    out.push("❓ (unknown)");
+  }
 
-  return sections.join("\n\n");
+  out.push("━━━━━━━━━━━━━");
+  out.push("💬 Reply with:");
+  out.push("👉 #/yes#    allow once");
+  out.push("👉 #/always# auto-allow");
+  out.push("👉 #/no#     deny");
+
+  return out.join("\n");
+}
+
+function extractToolNameFromReason(reason) {
+  const normalized = normalizeText(reason);
+  if (!normalized) return "";
+  if (normalized.toLowerCase().startsWith("tool:")) {
+    return normalized.slice(5).trim();
+  }
+  return normalized;
 }
 
 function buildApprovalPromptSignature(approval) {
@@ -1683,7 +1766,7 @@ function mergePendingInboundDraft(draft) {
   };
 }
 
-function buildCodexInboundText(normalized, persisted = {}, config = {}) {
+function buildInboundText(normalized, persisted = {}, config = {}) {
   const text = String(normalized?.text || "").trim();
   const saved = Array.isArray(persisted?.saved) ? persisted.saved : [];
   const failed = Array.isArray(persisted?.failed) ? persisted.failed : [];

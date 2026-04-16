@@ -237,6 +237,13 @@ const COMMAND_GROUPS = [
         status: "active",
       },
       {
+        action: "app.star",
+        summary: "Star the project on GitHub",
+        terminal: [],
+        weixin: ["/star"],
+        status: "active",
+      },
+      {
         action: "app.help",
         summary: "Show currently available commands for this channel",
         terminal: ["help"],
@@ -292,19 +299,49 @@ function buildTerminalHelpText() {
 }
 
 function buildWeixinHelpText() {
-  const lines = ["Available commands:"];
+  const lines = ["💡 Available commands:"];
   for (const group of COMMAND_GROUPS) {
     const activeActions = group.actions.filter((action) => action.status === "active" && action.weixin.length);
     if (!activeActions.length) {
       continue;
     }
     lines.push("");
-    lines.push(`${group.label}:`);
+    lines.push(`${groupEmoji(group.id)} 【${group.label}】`);
     for (const action of activeActions) {
-      lines.push(`- ${action.weixin.join(", ")}  ${action.summary}`);
+      lines.push(`  ${actionEmoji(action)} ${action.weixin.join(", ")} — ${action.summary}`);
     }
   }
   return lines.join("\n");
+}
+
+function groupEmoji(groupId) {
+  switch (groupId) {
+    case "lifecycle": return "🔄";
+    case "workspace": return "📁";
+    case "approval": return "🔐";
+    case "capabilities": return "⚡️";
+    default: return "•";
+  }
+}
+
+function actionEmoji(action) {
+  switch (action.action) {
+    case "workspace.bind": return "📍";
+    case "workspace.status": return "📊";
+    case "thread.new": return "🆕";
+    case "thread.reread": return "🔄";
+    case "thread.switch": return "🔀";
+    case "thread.stop": return "⏹️";
+    case "system.checkin_range": return "⏰";
+    case "approval.accept_once": return "✅";
+    case "approval.accept_workspace": return "💡";
+    case "approval.reject_once": return "❌";
+    case "model.inspect":
+    case "model.select": return "🤖";
+    case "app.help": return "❓";
+    case "app.star": return "⭐️";
+    default: return "•";
+  }
 }
 
 function buildTerminalTopicHelp(topic) {

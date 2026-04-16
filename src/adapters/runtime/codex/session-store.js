@@ -92,7 +92,7 @@ class SessionStore {
     });
   }
 
-  getCodexParamsForWorkspace(bindingKey, workspaceRoot) {
+  getRuntimeParamsForWorkspace(bindingKey, workspaceRoot) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
       return { model: "" };
@@ -105,7 +105,7 @@ class SessionStore {
     };
   }
 
-  setCodexParamsForWorkspace(bindingKey, workspaceRoot, { model = "" }) {
+  setRuntimeParamsForWorkspace(bindingKey, workspaceRoot, { model = "" }) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
       return this.getBinding(bindingKey);
