@@ -52,6 +52,17 @@ async function runCompletedTurn(streamDelivery, { threadId, turnId, itemId, text
   });
 }
 
+async function runCompletedTurnWithResultOnly(streamDelivery, { threadId, turnId, text }) {
+  await streamDelivery.handleRuntimeEvent({
+    type: "runtime.turn.started",
+    payload: { threadId, turnId },
+  });
+  await streamDelivery.handleRuntimeEvent({
+    type: "runtime.turn.completed",
+    payload: { threadId, turnId, text },
+  });
+}
+
 test("system silent JSON is suppressed", async () => {
   const { sent, streamDelivery } = createHarness();
   streamDelivery.queueReplyTargetForThread("thread-1", {
@@ -216,6 +227,28 @@ test("thread-level targets are consumed in turn order instead of overwriting act
       contextToken: "ctx-weixin",
     },
   ]);
+});
+
+test("turn.completed result text is delivered when no reply items were emitted", async () => {
+  const { sent, streamDelivery, bindingByThreadId } = createHarness();
+  bindingByThreadId.set("thread-result", { bindingKey: "binding-result" });
+  streamDelivery.setReplyTarget("binding-result", {
+    userId: "user-result",
+    contextToken: "ctx-result",
+    provider: "weixin",
+  });
+
+  await runCompletedTurnWithResultOnly(streamDelivery, {
+    threadId: "thread-result",
+    turnId: "turn-result",
+    text: "工具执行完了，这是最终回复",
+  });
+
+  assert.deepEqual(sent, [{
+    userId: "user-result",
+    text: "工具执行完了，这是最终回复",
+    contextToken: "ctx-result",
+  }]);
 });
 
 test("plain weixin reply still strips protocol leak text", async () => {

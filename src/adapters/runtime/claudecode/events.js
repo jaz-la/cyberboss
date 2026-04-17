@@ -1,3 +1,10 @@
+const {
+  extractApprovalCommandTokens,
+  extractApprovalFilePath,
+  extractApprovalFilePaths,
+  buildApprovalMatchTokens,
+} = require("../shared/approval-command");
+
 function mapClaudeCodeMessageToRuntimeEvent(message, raw) {
   const type = message?.type;
   switch (type) {
@@ -25,6 +32,7 @@ function mapClaudeCodeMessageToRuntimeEvent(message, raw) {
         payload: {
           threadId: message.sessionId,
           turnId: message.turnId,
+          text: typeof message.text === "string" ? message.text : "",
         },
       };
     case "approval.requested":
@@ -35,7 +43,14 @@ function mapClaudeCodeMessageToRuntimeEvent(message, raw) {
           requestId: message.requestId,
           reason: `Tool: ${message.toolName || ""}`,
           command: formatToolCommand(message.toolName, message.input),
-          commandTokens: [],
+          filePath: extractApprovalFilePath(message.input, { preferredKeys: ["file_path", "filePath", "path"] }),
+          filePaths: extractApprovalFilePaths(message.input, { preferredKeys: ["file_path", "filePath", "path"] }),
+          commandTokens: buildApprovalMatchTokens({
+            toolName: message.toolName,
+            commandTokens: extractApprovalCommandTokens(message.input, { preferredKeys: ["prefix_rule"] }),
+            input: message.input,
+            options: { preferredKeys: ["prefix_rule"] },
+          }),
         },
       };
     case "process.error":

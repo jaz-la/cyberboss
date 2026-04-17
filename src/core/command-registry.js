@@ -412,7 +412,7 @@ module.exports = {
 };
 
 function buildAgentCommandReminder() {
-  return "For local commands, trust workspace help only. Do not invent variants.";
+  return "For local commands, you must strictly follow workspace help only. Do not invent variants.";
 }
 
 function buildAgentCommandGuide(topics = []) {

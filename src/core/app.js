@@ -20,6 +20,14 @@ const { SystemMessageDispatcher } = require("./system-message-dispatcher");
 const { TimelineScreenshotQueueStore } = require("./timeline-screenshot-queue-store");
 const { TurnGateStore } = require("./turn-gate-store");
 const { ReminderQueueStore } = require("../adapters/channel/weixin/reminder-queue-store");
+const {
+  matchesCommandPrefix,
+  canonicalizeCommandTokens,
+  extractApprovalFilePaths,
+  isPathWithinRoot,
+  normalizeCommandTokens,
+  splitCommandLine,
+} = require("../adapters/runtime/shared/approval-command");
 const { runSystemCheckinPoller } = require("../app/system-checkin-poller");
 
 const DEFAULT_LONG_POLL_TIMEOUT_MS = 35_000;
@@ -595,7 +603,9 @@ class CyberbossApp {
       return {
         ...normalized,
         originalText: normalized.text,
-        text: buildInboundText(normalized, { saved: [], failed: [] }, this.config),
+        text: buildInboundText(normalized, { saved: [], failed: [] }, this.config, {
+          runtimeId: this.runtimeAdapter?.describe?.().id || "",
+        }),
         attachments: [],
         attachmentFailures: [],
       };
@@ -619,7 +629,9 @@ class CyberbossApp {
       return null;
     }
 
-    const codexInboundText = buildInboundText(normalized, persisted, this.config);
+    const codexInboundText = buildInboundText(normalized, persisted, this.config, {
+      runtimeId: this.runtimeAdapter?.describe?.().id || "",
+    });
     if (!codexInboundText) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
@@ -1255,7 +1267,8 @@ class CyberbossApp {
       return;
     }
     const allowlist = sessionStore.getApprovalCommandAllowlistForWorkspace(linked.workspaceRoot);
-    const shouldAutoApprove = matchesBuiltInCommandPrefix(event.payload.commandTokens)
+    const shouldAutoApprove = isAutoApprovedStateDirOperation(event.payload, this.config)
+      || matchesBuiltInCommandPrefix(event.payload.commandTokens)
       || matchesCommandPrefix(event.payload.commandTokens, allowlist);
     if (!shouldAutoApprove) {
       const promptState = sessionStore.getApprovalPromptState(event.payload.threadId);
@@ -1575,25 +1588,14 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function matchesCommandPrefix(commandTokens, allowlist) {
-  const normalizedCommandTokens = Array.isArray(commandTokens)
-    ? commandTokens.map((part) => normalizeCommandArgument(part)).filter(Boolean)
-    : [];
-  if (!normalizedCommandTokens.length || !Array.isArray(allowlist) || !allowlist.length) {
-    return false;
-  }
-  return allowlist.some((prefix) => {
-    if (!Array.isArray(prefix) || !prefix.length || prefix.length > normalizedCommandTokens.length) {
-      return false;
-    }
-    return prefix.every((part, index) => normalizeCommandArgument(part) === normalizedCommandTokens[index]);
-  });
-}
-
 function matchesBuiltInCommandPrefix(commandTokens) {
   const normalized = normalizeCommandTokensForMatching(commandTokens);
   if (!normalized.length) {
     return false;
+  }
+
+  if (normalized[0] === "view_image") {
+    return true;
   }
 
   if (normalized[0] === "npm") {
@@ -1624,13 +1626,7 @@ function matchesBuiltInCommandPrefix(commandTokens) {
 }
 
 function normalizeCommandTokensForMatching(commandTokens) {
-  const normalized = Array.isArray(commandTokens)
-    ? commandTokens.map((part) => normalizeCommandArgument(part)).filter(Boolean)
-    : [];
-  if (normalized.length >= 3 && isShellWrapper(normalized[0], normalized[1])) {
-    return splitCommandLine(normalized.slice(2).join(" "));
-  }
-  return normalized;
+  return canonicalizeCommandTokens(commandTokens);
 }
 
 function isShellWrapper(command, flag) {
@@ -1641,6 +1637,9 @@ function isShellWrapper(command, flag) {
 function isBuiltInScriptName(scriptName) {
   return scriptName === "reminder:write"
     || scriptName === "diary:write"
+    || scriptName === "channel:send-file"
+    || scriptName === "system:send"
+    || scriptName === "system:checkin"
     || scriptName.startsWith("timeline:");
 }
 
@@ -1665,53 +1664,15 @@ function matchesBuiltInCliCommand(tokens) {
       || action === "categories"
       || action === "proposals";
   }
+  if (topic === "channel") {
+    return action === "send-file";
+  }
+  if (topic === "system") {
+    return action === "send" || action === "checkin-poller";
+  }
   return (topic === "reminder" && action === "write")
     || (topic === "diary" && action === "write")
     || false;
-}
-
-function splitCommandLine(input) {
-  const tokens = [];
-  let current = "";
-  let quote = null;
-  let escaped = false;
-
-  for (const char of String(input || "")) {
-    if (escaped) {
-      current += char;
-      escaped = false;
-      continue;
-    }
-    if (char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (quote) {
-      if (char === quote) {
-        quote = null;
-      } else {
-        current += char;
-      }
-      continue;
-    }
-    if (char === "\"" || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (/\s/.test(char)) {
-      if (current) {
-        tokens.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += char;
-  }
-
-  if (current) {
-    tokens.push(current);
-  }
-  return tokens;
 }
 
 function buildApprovalPromptText(approval) {
@@ -1824,11 +1785,12 @@ function mergePendingInboundDraft(draft) {
   };
 }
 
-function buildInboundText(normalized, persisted = {}, config = {}) {
+function buildInboundText(normalized, persisted = {}, config = {}, options = {}) {
   const text = String(normalized?.text || "").trim();
   const saved = Array.isArray(persisted?.saved) ? persisted.saved : [];
   const failed = Array.isArray(persisted?.failed) ? persisted.failed : [];
   const userName = String(config?.userName || "").trim() || "the user";
+  const runtimeId = normalizeText(options?.runtimeId).toLowerCase();
   const commandGuide = buildIncomingCommandGuide(normalized, persisted);
   const localTime = formatWechatLocalTime(normalized?.receivedAt);
   const lines = [];
@@ -1851,8 +1813,16 @@ function buildInboundText(normalized, persisted = {}, config = {}) {
       const suffix = item.sourceFileName ? ` (original name: ${item.sourceFileName})` : "";
       lines.push(`- [${item.kind}] ${item.absolutePath}${suffix}`);
     }
-    lines.push(`You must read these files before replying to ${userName}. Do not skip the read step.`);
-    lines.push(`If the required local tool is missing, tell ${userName} exactly what is missing and that you cannot read the file yet. Do not pretend you already read it.`);
+    lines.push(`You must read these files before replying to ${userName}.`);
+    if (saved.some((item) => isImageAttachmentItem(item))) {
+      if (runtimeUsesReadForImages(runtimeId)) {
+        lines.push("For images, use `Read` on the saved local image file. Do not use shell commands or wrappers.");
+      } else {
+        lines.push("For images, use `view_image`. Do not use `Read` or shell commands on image files.");
+      }
+    }
+    lines.push("For local commands, strictly follow workspace help only. Do not invent variants or wrappers.");
+    lines.push(`If a required tool is missing, tell ${userName} exactly what is missing and that you cannot read the file yet.`);
   }
 
   if (failed.length) {
@@ -1874,6 +1844,29 @@ function buildInboundText(normalized, persisted = {}, config = {}) {
   }
 
   return lines.join("\n").trim();
+}
+
+function runtimeUsesReadForImages(runtimeId) {
+  return runtimeId === "claudecode";
+}
+
+function isImageAttachmentItem(item) {
+  return Boolean(item?.isImage) || normalizeText(item?.contentType).toLowerCase().startsWith("image/")
+    || normalizeText(item?.kind).toLowerCase() === "image";
+}
+
+function isAutoApprovedStateDirOperation(approval, config = {}) {
+  const stateDir = normalizeText(config?.stateDir);
+  if (!stateDir) {
+    return false;
+  }
+
+  const filePaths = extractApprovalFilePaths(approval);
+  if (!filePaths.length) {
+    return false;
+  }
+
+  return filePaths.every((filePath) => isPathWithinRoot(filePath, stateDir));
 }
 
 function sortInboundUpdateMessages(messages) {
