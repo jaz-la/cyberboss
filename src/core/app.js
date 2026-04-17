@@ -41,6 +41,8 @@ class CyberbossApp {
     this.checkinConfigStore = new CheckinConfigStore({ filePath: config.checkinConfigFile });
     this.timelineScreenshotQueue = new TimelineScreenshotQueueStore({ filePath: config.timelineScreenshotQueueFile });
     this.reminderQueue = new ReminderQueueStore({ filePath: config.reminderQueueFile });
+    this.latestInboundAtBySender = new Map();
+    this.lastAutomatedSystemDispatchAtBySender = new Map();
     this.systemMessageDispatcher = null;
     this.streamDelivery = new StreamDelivery({
       channelAdapter: this.channelAdapter,
@@ -245,6 +247,7 @@ class CyberbossApp {
       return;
     }
 
+    this.noteInboundMessage(normalized);
     this.primeDeferredRepliesForSender(normalized);
     await this.handlePreparedMessage(normalized, { allowCommands: true });
   }
@@ -497,17 +500,78 @@ class CyberbossApp {
   }
 
   async flushPendingSystemMessages() {
-    const pendingMessages = this.systemMessageDispatcher?.drainPending() || [];
+    const pendingMessages = coalesceAutomatedSystemMessages(this.systemMessageDispatcher?.drainPending() || []);
     for (const message of pendingMessages) {
+      if (this.shouldSkipAutomatedSystemMessage(message)) {
+        continue;
+      }
       try {
         const dispatched = await this.dispatchSystemMessage(message);
         if (!dispatched) {
           this.systemMessageDispatcher.requeue(message);
+          continue;
+        }
+        if (isAutomatedSystemMessage(message)) {
+          this.noteAutomatedSystemDispatch(message);
         }
       } catch {
         this.systemMessageDispatcher?.requeue(message);
       }
     }
+  }
+
+  noteInboundMessage(message) {
+    const senderKey = buildSenderAutomationKey(message);
+    if (!senderKey) {
+      return;
+    }
+    const receivedAtMs = parseTimestampMs(message?.receivedAt) || Date.now();
+    const current = this.latestInboundAtBySender.get(senderKey) || 0;
+    if (receivedAtMs > current) {
+      this.latestInboundAtBySender.set(senderKey, receivedAtMs);
+    }
+  }
+
+  noteAutomatedSystemDispatch(message, dispatchedAtMs = Date.now()) {
+    const senderKey = buildSenderAutomationKey(message);
+    if (!senderKey) {
+      return;
+    }
+    const current = this.lastAutomatedSystemDispatchAtBySender.get(senderKey) || 0;
+    if (dispatchedAtMs > current) {
+      this.lastAutomatedSystemDispatchAtBySender.set(senderKey, dispatchedAtMs);
+    }
+  }
+
+  shouldSkipAutomatedSystemMessage(message) {
+    if (!isAutomatedSystemMessage(message)) {
+      return false;
+    }
+
+    const senderKey = buildSenderAutomationKey(message);
+    if (!senderKey) {
+      return false;
+    }
+
+    const latestInboundAtMs = this.latestInboundAtBySender.get(senderKey) || 0;
+    const lastAutomatedDispatchAtMs = this.lastAutomatedSystemDispatchAtBySender.get(senderKey) || 0;
+    const createdAtMs = parseTimestampMs(message?.createdAt);
+
+    if (createdAtMs && latestInboundAtMs && createdAtMs <= latestInboundAtMs) {
+      console.log(
+        `[cyberboss] skipped stale automated system message sender=${message.senderId} createdAt=${message.createdAt}`
+      );
+      return true;
+    }
+
+    if (lastAutomatedDispatchAtMs && (!latestInboundAtMs || lastAutomatedDispatchAtMs >= latestInboundAtMs)) {
+      console.log(
+        `[cyberboss] skipped duplicate automated system message sender=${message.senderId} lastDispatchAt=${new Date(lastAutomatedDispatchAtMs).toISOString()}`
+      );
+      return true;
+    }
+
+    return false;
   }
 
   async flushPendingTimelineScreenshots(account) {
@@ -1500,6 +1564,67 @@ function buildReminderSystemTrigger(reminder, config = {}) {
   const reminderText = String(reminder?.text || "").trim();
   const userName = String(config?.userName || "").trim() || "the user";
   return `Due reminder for ${userName}: ${reminderText}`;
+}
+
+function isAutomatedSystemMessage(message) {
+  const text = normalizeText(message?.text);
+  if (!text) {
+    return false;
+  }
+  return text.startsWith("Due reminder for ") || text.includes(" comes to mind again.");
+}
+
+function buildSenderAutomationKey(message) {
+  const accountId = normalizeText(message?.accountId);
+  const senderId = normalizeText(message?.senderId);
+  if (!accountId || !senderId) {
+    return "";
+  }
+  return `${accountId}:${senderId}`;
+}
+
+function parseTimestampMs(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return 0;
+  }
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function coalesceAutomatedSystemMessages(messages) {
+  if (!Array.isArray(messages) || !messages.length) {
+    return [];
+  }
+
+  const automatedWinnerIds = new Set();
+  const latestAutomatedBySender = new Map();
+
+  for (const message of messages) {
+    if (!isAutomatedSystemMessage(message)) {
+      continue;
+    }
+    const senderKey = buildSenderAutomationKey(message);
+    if (!senderKey) {
+      continue;
+    }
+    const currentWinner = latestAutomatedBySender.get(senderKey);
+    if (!currentWinner) {
+      latestAutomatedBySender.set(senderKey, message);
+      continue;
+    }
+    const currentWinnerTime = parseTimestampMs(currentWinner.createdAt);
+    const candidateTime = parseTimestampMs(message.createdAt);
+    if (candidateTime >= currentWinnerTime) {
+      latestAutomatedBySender.set(senderKey, message);
+    }
+  }
+
+  for (const winner of latestAutomatedBySender.values()) {
+    automatedWinnerIds.add(String(winner.id));
+  }
+
+  return messages.filter((message) => !isAutomatedSystemMessage(message) || automatedWinnerIds.has(String(message.id)));
 }
 
 function buildCodexInboundText(normalized, persisted = {}, config = {}) {
