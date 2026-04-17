@@ -2,6 +2,15 @@ function extractThreadId(response) {
   return response?.result?.thread?.id || null;
 }
 
+function extractTurnId(response) {
+  return normalizeIdentifier(
+    response?.result?.turn?.id
+    || response?.result?.turnId
+    || response?.result?.turn_id
+    || response?.result?.id
+  );
+}
+
 function extractThreadIdFromParams(params) {
   return normalizeIdentifier(params?.threadId);
 }
@@ -42,7 +51,7 @@ function extractAssistantText(params) {
 
 function extractFailureText(params) {
   const rawMessage = normalizeIdentifier(params?.turn?.error?.message || params?.error?.message);
-  return rawMessage ? `Execution failed: ${rawMessage}` : "Execution failed";
+  return rawMessage ? `❌ Execution failed\n${rawMessage}` : "❌ Execution failed";
 }
 
 function normalizeIdentifier(value) {
@@ -103,6 +112,7 @@ module.exports = {
   extractAssistantText,
   extractFailureText,
   extractThreadId,
+  extractTurnId,
   extractThreadIdFromParams,
   extractTurnIdFromParams,
   isAssistantItemCompleted,
