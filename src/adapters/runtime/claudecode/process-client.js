@@ -71,7 +71,7 @@ class ClaudeCodeProcessClient {
       const text = chunk.toString("utf8").trim();
       if (text) {
         console.error(`[claudecode-runtime] stderr: ${text}`);
-        if (this.ipcServer) {
+        if (this.ipcServer && !isPotentiallySensitive(text)) {
           this.ipcServer.broadcast({ type: "stderr", text });
         }
       }
@@ -254,13 +254,25 @@ class ClaudeCodeProcessClient {
     if (this.stdin && !this.stdin.destroyed) {
       this.stdin.end();
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (this.child && !this.child.killed) {
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, 2000)),
+        new Promise((resolve) => this.child.once("close", resolve)),
+      ]);
+    }
     if (this.child && !this.child.killed) {
       this.child.kill("SIGTERM");
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      if (this.child && !this.child.killed) {
-        this.child.kill("SIGKILL");
-      }
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+        new Promise((resolve) => this.child.once("close", resolve)),
+      ]);
+    }
+    if (this.child && !this.child.killed) {
+      this.child.kill("SIGKILL");
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+        new Promise((resolve) => this.child.once("close", resolve)),
+      ]);
     }
     this.alive = false;
     this.child = null;
@@ -280,16 +292,30 @@ function buildArgs({ model, permissionMode, disableVerbose, extraArgs, resumeSes
   if (permissionMode && permissionMode !== "default") {
     args.push("--permission-mode", permissionMode);
   }
-  if (resumeSessionId) {
+  if (resumeSessionId && isValidSessionId(resumeSessionId)) {
     args.push("--resume", resumeSessionId);
   }
   if (model) {
     args.push("--model", model);
   }
   if (Array.isArray(extraArgs)) {
-    args.push(...extraArgs);
+    const safe = extraArgs.filter((arg) =>
+      typeof arg === "string" && arg.length > 0 && !/^-[ce]\b/i.test(arg)
+    );
+    args.push(...safe);
   }
   return args;
+}
+
+function isValidSessionId(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value));
+}
+
+const SENSITIVE_KEYWORDS = /\b(?:key|token|secret|password|credential|api[_-]?key|auth[_-]?token|access[_-]?token|private[_-]?key)\b/i;
+const SENSITIVE_PATTERNS = /\b(?:sk-[a-zA-Z0-9]{20,}|Bearer\s+[a-zA-Z0-9_\-]{20,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36})\b/i;
+
+function isPotentiallySensitive(text) {
+  return SENSITIVE_KEYWORDS.test(text) || SENSITIVE_PATTERNS.test(text);
 }
 
 module.exports = { ClaudeCodeProcessClient };

@@ -3,7 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
-const { DEFAULT_MIN_WEIXIN_CHUNK } = require("../adapters/channel/weixin/config-store");
+const { DEFAULT_MIN_WEIXIN_CHUNK, MAX_MIN_WEIXIN_CHUNK } = require("../adapters/channel/weixin/config-store");
 const { persistIncomingWeixinAttachments } = require("../adapters/channel/weixin/media-receive");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
 const { createClaudeCodeRuntimeAdapter } = require("../adapters/runtime/claudecode");
@@ -132,10 +132,12 @@ class CyberbossApp {
       let consecutiveFailures = 0;
       while (!shutdown.stopped) {
         try {
-          await this.flushDueReminders(account);
-          await this.flushPendingInboundMessages();
-          await this.flushPendingSystemMessages();
-          await this.flushPendingTimelineScreenshots(account);
+          await Promise.all([
+            this.flushDueReminders(account),
+            this.flushPendingInboundMessages(),
+            this.flushPendingSystemMessages(),
+            this.flushPendingTimelineScreenshots(account),
+          ]);
           const response = await this.channelAdapter.getUpdates({
             syncBuffer: this.channelAdapter.loadSyncBuffer(),
             timeoutMs: this.resolveLongPollTimeoutMs(),
@@ -149,10 +151,12 @@ class CyberbossApp {
             }
             await this.handleIncomingMessage(message);
           }
-          await this.flushDueReminders(account);
-          await this.flushPendingInboundMessages();
-          await this.flushPendingSystemMessages();
-          await this.flushPendingTimelineScreenshots(account);
+          await Promise.all([
+            this.flushDueReminders(account),
+            this.flushPendingInboundMessages(),
+            this.flushPendingSystemMessages(),
+            this.flushPendingTimelineScreenshots(account),
+          ]);
         } catch (error) {
           if (shutdown.stopped) {
             break;
@@ -813,6 +817,15 @@ class CyberbossApp {
       return;
     }
 
+    if (!isPathWithinAllowedDirectories(workspaceRoot)) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "⚠️ The path must be within your home directory or the current working directory.",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+
     const stats = await fs.promises.stat(workspaceRoot).catch(() => null);
     if (!stats?.isDirectory()) {
       await this.channelAdapter.sendText({
@@ -1043,10 +1056,10 @@ class CyberbossApp {
       return;
     }
     const parsed = Number.parseInt(arg, 10);
-    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3800) {
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > MAX_MIN_WEIXIN_CHUNK) {
       await this.channelAdapter.sendText({
         userId: normalized.senderId,
-        text: "⚠️  Invalid value. Please provide a number between 1 and 3800.",
+        text: `⚠️  Invalid value. Please provide a number between 1 and ${MAX_MIN_WEIXIN_CHUNK}.`,
         contextToken: normalized.contextToken,
       });
       return;
@@ -1539,6 +1552,19 @@ function extractPathFromFileUri(value) {
   } catch {
     return "";
   }
+}
+
+function isPathWithinAllowedDirectories(rawPath) {
+  const resolved = path.resolve(rawPath);
+  const normalized = resolved.replace(/\\/g, "/") + "/";
+  const allowedDirs = [
+    os.homedir(),
+    process.cwd(),
+    this?.config?.workspaceRoot,
+  ]
+    .filter(Boolean)
+    .map((dir) => path.resolve(dir).replace(/\\/g, "/") + "/");
+  return allowedDirs.some((prefix) => normalized.startsWith(prefix));
 }
 
 function normalizeCommandArgument(value) {

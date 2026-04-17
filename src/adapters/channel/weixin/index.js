@@ -69,12 +69,11 @@ function createWeixinChannelAdapter(config) {
     if (!content.trim()) {
       return Promise.resolve();
     }
+    const textChunks = preserveBlock ? null : chunkReplyTextForWeixin(content, minWeixinChunk);
     const sendChunks = preserveBlock
       ? splitUtf8(compactPlainTextForWeixin(content) || "Completed.", MAX_WEIXIN_CHUNK)
       : packChunksForWeixinDelivery(
-        chunkReplyTextForWeixin(content, minWeixinChunk).length
-          ? chunkReplyTextForWeixin(content, minWeixinChunk)
-          : ["Completed."],
+        textChunks?.length ? textChunks : ["Completed."],
         WEIXIN_MAX_DELIVERY_MESSAGES,
         MAX_WEIXIN_CHUNK
       );
@@ -149,8 +148,9 @@ function createWeixinChannelAdapter(config) {
         getUpdatesBuf: syncBuffer,
         timeoutMs,
       });
-      if (typeof response?.get_updates_buf === "string" && response.get_updates_buf.trim()) {
-        this.saveSyncBuffer(response.get_updates_buf.trim());
+      const newBuf = typeof response?.get_updates_buf === "string" ? response.get_updates_buf.trim() : "";
+      if (newBuf && newBuf !== syncBuffer) {
+        this.saveSyncBuffer(newBuf);
       }
       const messages = Array.isArray(response?.msgs) ? response.msgs : [];
       for (const message of messages) {
@@ -213,7 +213,6 @@ function createWeixinChannelAdapter(config) {
       });
     },
     setMinChunkChars(value) {
-      minWeixinChunk = loadWeixinConfig(config).minChunkChars;
       const parsed = Number.parseInt(String(value), 10);
       if (Number.isFinite(parsed) && parsed >= 1 && parsed <= MAX_WEIXIN_CHUNK) {
         minWeixinChunk = parsed;

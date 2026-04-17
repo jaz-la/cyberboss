@@ -68,6 +68,17 @@ async function main() {
   console.log(`Observing workspace: ${workspaceRoot}`);
   console.log("Type your message and press Enter to send. Ctrl+C to exit.\n");
 
+  // Authenticate with the IPC server
+  const tokenFile = `${socketPath}.token`;
+  let authToken = "";
+  try {
+    authToken = fs.readFileSync(tokenFile, "utf8").trim();
+  } catch {
+    console.error(`Failed to read IPC auth token: ${tokenFile}`);
+    process.exit(1);
+  }
+  socket.write(JSON.stringify({ type: "auth", token: authToken }) + "\n");
+
   // Handle incoming events from the bridge
   let buffer = "";
   socket.on("data", (chunk) => {
