@@ -3,6 +3,7 @@ const path = require("path");
 const crypto = require("crypto");
 const fs = require("fs");
 const { createWeixinChannelAdapter } = require("../adapters/channel/weixin");
+const { DEFAULT_MIN_WEIXIN_CHUNK } = require("../adapters/channel/weixin/config-store");
 const { persistIncomingWeixinAttachments } = require("../adapters/channel/weixin/media-receive");
 const { createCodexRuntimeAdapter } = require("../adapters/runtime/codex");
 const { createClaudeCodeRuntimeAdapter } = require("../adapters/runtime/claudecode");
@@ -766,6 +767,9 @@ class CyberbossApp {
       case "checkin":
         await this.handleCheckinCommand(normalized, command);
         return;
+      case "chunk":
+        await this.handleChunkCommand(normalized, command);
+        return;
       case "yes":
       case "always":
       case "no":
@@ -1023,6 +1027,34 @@ class CyberbossApp {
     await this.channelAdapter.sendText({
       userId: normalized.senderId,
       text: `✅ Check-in interval reset to ${parsedRange.minMinutes}-${parsedRange.maxMinutes} minutes and will apply on the next polling cycle.`,
+      contextToken: normalized.contextToken,
+    });
+  }
+
+  async handleChunkCommand(normalized, command) {
+    const arg = normalizeCommandArgument(command.args);
+    if (!arg) {
+      const current = this.channelAdapter.getMinChunkChars?.() ?? DEFAULT_MIN_WEIXIN_CHUNK;
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: `💡 Current minimum merge chunk is ${current} characters. Usage: /chunk <number> (e.g. /chunk 50)`,
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+    const parsed = Number.parseInt(arg, 10);
+    if (!Number.isFinite(parsed) || parsed < 1 || parsed > 3800) {
+      await this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        text: "⚠️  Invalid value. Please provide a number between 1 and 3800.",
+        contextToken: normalized.contextToken,
+      });
+      return;
+    }
+    const updated = this.channelAdapter.setMinChunkChars?.(parsed) ?? parsed;
+    await this.channelAdapter.sendText({
+      userId: normalized.senderId,
+      text: `✅ Minimum merge chunk set to ${updated} characters. Shorter fragments will be merged into one message up to this size.`,
       contextToken: normalized.contextToken,
     });
   }
@@ -1662,7 +1694,7 @@ function buildApprovalPromptText(approval) {
   const toolName = extractToolNameFromReason(reasonText) || "";
 
   const out = [];
-  out.push(`🔐 【Approval】${toolName ? `#${toolName}#` : "Tool request"}`);
+  out.push(`🔐 【Approval】${toolName || "Tool request"}`);
 
   if (reasonText && reasonText !== commandText) {
     out.push(`📋 ${reasonText}`);
@@ -1673,7 +1705,7 @@ function buildApprovalPromptText(approval) {
     const first = lines[0] || "";
     const rest = lines.slice(1);
     if (first) {
-      out.push(`⌨️ #${first}#`);
+      out.push(`⌨️ ${first}`);
     }
     if (rest.length) {
       out.push(rest.map((line) => `  ${line}`).join("\n"));
@@ -1686,9 +1718,9 @@ function buildApprovalPromptText(approval) {
 
   out.push("━━━━━━━━━━━━━");
   out.push("💬 Reply with:");
-  out.push("👉 #/yes#    allow once");
-  out.push("👉 #/always# auto-allow");
-  out.push("👉 #/no#     deny");
+  out.push("👉 /yes    allow once");
+  out.push("👉 /always auto-allow");
+  out.push("👉 /no     deny");
 
   return out.join("\n");
 }
@@ -1913,7 +1945,7 @@ function detectCommandTopics(normalized, persisted = {}) {
   return Array.from(topics);
 }
 
-const DEFERRED_REPLY_NOTICE = "由于微信 context_token 的限制，上轮对话里有一部分内容当时没能送达；这次用户再次发来消息、context_token 刷新后，先把遗留内容补上。";
+const DEFERRED_REPLY_NOTICE = "由于微信 context_token 的限制，上轮对话里有一部分内容当时没能送达；这次用户再次发来消息、context_token 刷新后，先把遗留内容补上。如果这种情况反复出现，可发送 /chunk <数字>（例如 /chunk 50）调大最小合并字符数，减少消息分片。";
 const DEFERRED_PLAIN_REPLY_HEADER = "===== 上轮对话遗留内容 =====";
 const DEFERRED_SYSTEM_REPLY_HEADER = "===== 期间模型主动联系 =====";
 

@@ -10,6 +10,7 @@ const { ClaudeCodeIpcServer } = require("./ipc-server");
 function createClaudeCodeRuntimeAdapter(config) {
   const sessionStore = new SessionStore({ filePath: config.sessionsFile });
   const clientsByWorkspace = new Map();
+  const pendingApprovals = new Map();
   let globalListener = null;
   const ipcSocketPath = path.join(
     config.stateDir || path.join(os.homedir(), ".cyberboss"),
@@ -52,12 +53,17 @@ function createClaudeCodeRuntimeAdapter(config) {
         for (const binding of sessionStore.listBindings()) {
           if (binding.activeWorkspaceRoot === workspaceRoot) {
             sessionStore.setThreadIdForWorkspace(binding.bindingKey, workspaceRoot, event.sessionId);
-            break;
           }
         }
         return;
       }
       const mapped = mapClaudeCodeMessageToRuntimeEvent(event, raw);
+      if (mapped?.type === "runtime.approval.requested") {
+        pendingApprovals.set(mapped.payload.requestId, workspaceRoot);
+      }
+      if (mapped?.type === "runtime.turn.failed") {
+        clientsByWorkspace.delete(workspaceRoot);
+      }
       if (mapped && globalListener) {
         globalListener(mapped, raw);
       }
@@ -105,9 +111,22 @@ function createClaudeCodeRuntimeAdapter(config) {
       await ipcServer.close();
     },
     async respondApproval({ requestId, decision }) {
+      const workspaceRoot = pendingApprovals.get(requestId);
+      if (workspaceRoot) {
+        const client = clientsByWorkspace.get(workspaceRoot);
+        if (client?.alive) {
+          await client.sendResponse(requestId, { decision });
+          pendingApprovals.delete(requestId);
+          return {
+            requestId,
+            decision: decision === "accept" ? "accept" : "decline",
+          };
+        }
+      }
       for (const client of clientsByWorkspace.values()) {
         if (client.alive) {
           await client.sendResponse(requestId, { decision });
+          pendingApprovals.delete(requestId);
           return {
             requestId,
             decision: decision === "accept" ? "accept" : "decline",
@@ -132,7 +151,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     async refreshThreadInstructions({ threadId, workspaceRoot, model = "" }) {
       const client = ensureClient(workspaceRoot);
       if (!client.child) {
-        await client.connect(isCodexThreadId(threadId) ? "" : (threadId || ""));
+        await client.connect(threadId || "");
       }
       const refreshText = buildInstructionRefreshText(config);
       await client.sendUserMessage({ text: refreshText });
@@ -140,7 +159,7 @@ function createClaudeCodeRuntimeAdapter(config) {
     },
     async sendTextTurn({ bindingKey, workspaceRoot, text, metadata = {}, model = "" }) {
       let threadId = sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
-      if (isCodexThreadId(threadId)) {
+      if (!threadId || threadId.startsWith("pending-")) {
         sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
         threadId = "";
       }

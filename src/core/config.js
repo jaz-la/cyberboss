@@ -21,7 +21,8 @@ function readConfig() {
     accountId: readTextEnv("CYBERBOSS_ACCOUNT_ID"),
     weixinBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_BASE_URL") || "https://ilinkai.weixin.qq.com",
     weixinCdnBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_CDN_BASE_URL") || "https://novac2c.cdn.weixin.qq.com/c2c",
-    weixinAdapterVariant: readTextEnv("CYBERBOSS_WEIXIN_ADAPTER") || "v2",
+    weixinConfigFile: path.join(stateDir, "weixin-config.json"),
+    weixinMinChunkChars: readIntEnv("CYBERBOSS_WEIXIN_MIN_CHUNK_CHARS"),
     weixinQrBotType: readTextEnv("CYBERBOSS_WEIXIN_QR_BOT_TYPE") || "3",
     accountsDir: path.join(stateDir, "accounts"),
     reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
@@ -60,6 +61,15 @@ function readTextEnv(name) {
 function readBoolEnv(name) {
   const value = readTextEnv(name).toLowerCase();
   return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+function readIntEnv(name) {
+  const value = readTextEnv(name);
+  if (!value) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function hasArgFlag(argv, flag) {

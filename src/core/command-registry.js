@@ -125,6 +125,13 @@ const COMMAND_GROUPS = [
         weixin: ["/checkin <min>-<max>"],
         status: "active",
       },
+      {
+        action: "channel.chunk_min",
+        summary: "Adjust the minimum short-chunk merge size for WeChat replies",
+        terminal: [],
+        weixin: ["/chunk <number>"],
+        status: "active",
+      },
     ],
   },
   {
